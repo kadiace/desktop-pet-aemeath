@@ -31,6 +31,7 @@ public sealed class ActionMenuWindow : Window
     private readonly Button _btnMediaPrev;
     private readonly Button _btnMediaPlayPause;
     private readonly Button _btnMediaNext;
+    private readonly Button _btnAutoStart;
     private readonly Button _btnCheckUpdate;
     private readonly Button _btnApplyUpdate;
     private readonly Dictionary<string, Button> _poseButtons = new(StringComparer.OrdinalIgnoreCase);
@@ -43,6 +44,7 @@ public sealed class ActionMenuWindow : Window
     public event Action<string?>? VisualSelected;
     public event Action<double>? ScaleChanged;
     public event Action? AlwaysOnTopToggled;
+    public event Action? AutoStartToggled;
     public event Action? ResetPositionRequested;
     public event Action? MediaPreviousRequested;
     public event Action? MediaPlayPauseRequested;
@@ -317,9 +319,37 @@ public sealed class ActionMenuWindow : Window
 
         rootStack.Children.Add(footerGrid);
 
-        // Bottom version & update bar (Requirement: current version, check latest, conditional update button)
+        // PC startup auto-launch option placed right above update settings
+        var startupDivider = MakeDivider();
+        startupDivider.Margin = new Thickness(0, 7, 0, 6);
+        rootStack.Children.Add(startupDivider);
+
+        var autoStartRow = new Grid();
+        autoStartRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        autoStartRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        autoStartRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        var autoStartLabel = new TextBlock
+        {
+            Text = "PC 시작 시 자동 켜기",
+            FontFamily = PixelPalette.PretendardFamily,
+            FontWeight = FontWeights.Bold,
+            FontSize = 10.5,
+            Foreground = PixelPalette.CreamWhiteBrush,
+            VerticalAlignment = VerticalAlignment.Center
+        };
+        autoStartRow.Children.Add(autoStartLabel);
+
+        _btnAutoStart = CreatePixelButton("OFF", compact: true);
+        _btnAutoStart.MinWidth = 44;
+        _btnAutoStart.Click += (_, _) => AutoStartToggled?.Invoke();
+        Grid.SetColumn(_btnAutoStart, 2);
+        autoStartRow.Children.Add(_btnAutoStart);
+        rootStack.Children.Add(autoStartRow);
+
+        // Bottom version & update bar (current version, check latest, conditional update button)
         var updateDivider = MakeDivider();
-        updateDivider.Margin = new Thickness(0, 7, 0, 6);
+        updateDivider.Margin = new Thickness(0, 6, 0, 6);
         rootStack.Children.Add(updateDivider);
 
         var versionRow = new Grid();
@@ -463,6 +493,14 @@ public sealed class ActionMenuWindow : Window
 
         _btnTopmost.Content = controller.AlwaysOnTop ? "TOP: ON" : "TOP: OFF";
         StyleToggleButton(_btnTopmost, controller.AlwaysOnTop);
+
+        SyncAutoStartUi(AutoStartService.IsEnabled());
+    }
+
+    public void SyncAutoStartUi(bool enabled)
+    {
+        _btnAutoStart.Content = enabled ? "ON" : "OFF";
+        StyleToggleButton(_btnAutoStart, enabled);
     }
 
     public void SyncUpdateUi(UpdateCheckResult info, bool isChecking = false, bool isUpdating = false, string? progressText = null)

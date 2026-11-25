@@ -321,7 +321,14 @@ void Assert(bool condition, string name)
     Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
-    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.1", "Assembly version matches project Version (0.0.1)");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.3", "Assembly version matches project Version (0.0.3)");
+
+    // AutoStartService formatting & parsing
+    string formatted = AutoStartService.FormatRunCommand(@"C:\Program Files\Aemeath\AemeathCompanion.exe");
+    Assert(formatted == "\"C:\\Program Files\\Aemeath\\AemeathCompanion.exe\"",
+        "AutoStartService quotes executable path with spaces");
+    Assert(AutoStartService.NormalizeRegisteredPath(formatted) == @"C:\Program Files\Aemeath\AemeathCompanion.exe",
+        "AutoStartService extracts clean path from quoted registry value");
 }
 
 // ============================================================

@@ -11,6 +11,7 @@ namespace AemeathCompanion.UI;
 public sealed class TrayIconService : IDisposable
 {
     private readonly WinForms.NotifyIcon _notifyIcon;
+    private readonly WinForms.ToolStripMenuItem _autoStartMenuItem;
     private readonly Icon? _customIcon;
     private bool _disposed;
 
@@ -24,6 +25,7 @@ public sealed class TrayIconService : IDisposable
     public event Action? ResetPositionRequested;
     public event Action? ResetScaleRequested;
     public event Action? ToggleTopmostRequested;
+    public event Action? ToggleAutoStartRequested;
     public event Action? ExitRequested;
 
     public TrayIconService(string spriteDirectory)
@@ -40,6 +42,11 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add("Center on Primary Monitor", null, (_, _) => ResetPositionRequested?.Invoke());
         menu.Items.Add("Reset Scale (1.00x)", null, (_, _) => ResetScaleRequested?.Invoke());
         menu.Items.Add("Toggle Always On Top", null, (_, _) => ToggleTopmostRequested?.Invoke());
+        _autoStartMenuItem = new WinForms.ToolStripMenuItem("PC 시작 시 자동 켜기", null, (_, _) => ToggleAutoStartRequested?.Invoke())
+        {
+            Checked = Native.AutoStartService.IsEnabled()
+        };
+        menu.Items.Add(_autoStartMenuItem);
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Exit Aemeath", null, (_, _) => ExitRequested?.Invoke());
 
@@ -51,6 +58,11 @@ public sealed class TrayIconService : IDisposable
             Visible = true
         };
         _notifyIcon.DoubleClick += (_, _) => OpenMenuRequested?.Invoke();
+    }
+
+    public void SetAutoStartChecked(bool enabled)
+    {
+        if (!_disposed) _autoStartMenuItem.Checked = enabled;
     }
 
     private static Icon? CreateIconFromSprite(string gifPath)

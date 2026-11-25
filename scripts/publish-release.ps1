@@ -22,10 +22,17 @@ $cleanVersion = $Version.Trim().TrimStart('v', 'V')
 $tag = "v$cleanVersion"
 
 if ($CreateTag) {
+    $dirty = git -c safe.directory=* -C $RepoRoot status --porcelain
+    if (-not [string]::IsNullOrWhiteSpace($dirty)) {
+        throw "Working tree has uncommitted changes. Commit your changes before running with -CreateTag."
+    }
     $existing = git -c safe.directory=* -C $RepoRoot tag -l $tag
     if ([string]::IsNullOrWhiteSpace($existing)) {
         $msg = if ([string]::IsNullOrWhiteSpace($Notes)) { "Release $tag" } else { $Notes }
         git -c safe.directory=* -C $RepoRoot tag -a $tag -m $msg
+        if ($LASTEXITCODE -ne 0) {
+            throw "git tag failed with exit code $LASTEXITCODE"
+        }
         Write-Host "[OK] Created git tag $tag" -ForegroundColor Cyan
     } else {
         Write-Host "[INFO] Git tag $tag already exists" -ForegroundColor Yellow

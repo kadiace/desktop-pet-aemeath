@@ -14,7 +14,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>AemeathCompanion</AssemblyName>
     <RootNamespace>AemeathCompanion</RootNamespace>
-    <Version>0.0.1</Version>
+    <Version>0.0.3</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

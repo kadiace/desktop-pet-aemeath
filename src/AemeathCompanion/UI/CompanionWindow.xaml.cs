@@ -71,6 +71,7 @@ public partial class CompanionWindow : Window
         var saved = CompanionStateStorage.Load();
         _controller.InitializeFromState(saved, _monitors, 1.0);
         _controller.SpriteRestartRequested += OnSpriteRestartRequested;
+        AutoStartService.RefreshPathIfEnabled();
         _updateService = new AppUpdateService(saved.UpdateServerUrl);
 
         _bubbleWindow = new MusicBubbleWindow();
@@ -547,6 +548,8 @@ public partial class CompanionWindow : Window
             _menuWindow.SyncUi(_controller, _smtcService.Current);
         };
 
+        _menuWindow.AutoStartToggled += ToggleAutoStart;
+
         _menuWindow.MediaPreviousRequested += () => _ = _smtcService.SkipPreviousAsync();
         _menuWindow.MediaPlayPauseRequested += () => _ = _smtcService.TogglePlayPauseAsync();
         _menuWindow.MediaNextRequested += () => _ = _smtcService.SkipNextAsync();
@@ -624,7 +627,18 @@ public partial class CompanionWindow : Window
             if (_controller.AlwaysOnTop) ReinforceTopmostAll();
             CompanionStateStorage.Save(_controller.ExportState());
         });
+        _trayService.ToggleAutoStartRequested += () => Dispatcher.BeginInvoke(ToggleAutoStart);
         _trayService.ExitRequested += () => Dispatcher.BeginInvoke(ShutdownApp);
+    }
+
+    private void ToggleAutoStart()
+    {
+        bool next = !AutoStartService.IsEnabled();
+        AutoStartService.SetEnabled(next);
+        bool actual = AutoStartService.IsEnabled();
+        _trayService.SetAutoStartChecked(actual);
+        if (_menuWindow.IsVisible)
+            _menuWindow.SyncAutoStartUi(actual);
     }
 
     private void ResetPositionToPrimaryCenter()
