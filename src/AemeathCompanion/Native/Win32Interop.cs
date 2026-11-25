@@ -61,6 +61,8 @@ public static class Win32Interop
     public const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
     public const uint MONITORINFOF_PRIMARY = 0x00000001;
     public const int VK_LBUTTON = 0x01;
+    public const int SM_CXDOUBLECLK = 36;
+    public const int SM_CYDOUBLECLK = 37;
 
     public delegate bool EnumWindowsProc(nint hWnd, nint lParam);
     public delegate bool MonitorEnumProc(nint hMonitor, nint hdcMonitor, ref NativeRect lprcMonitor, nint dwData);
@@ -115,6 +117,9 @@ public static class Win32Interop
 
     [DllImport("user32.dll")]
     public static extern uint GetDoubleClickTime();
+
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("user32.dll")]
     public static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, nint lParam);

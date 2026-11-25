@@ -16,10 +16,10 @@
     <Grid Background="Transparent">
         <Image x:Name="SpriteImage"
                Stretch="Uniform"
-               HorizontalAlignment="Center"
-               VerticalAlignment="Center"
+               HorizontalAlignment="Left"
+               VerticalAlignment="Top"
                RenderOptions.BitmapScalingMode="NearestNeighbor"
-               RenderTransformOrigin="0.5,0.5">
+               RenderTransformOrigin="0.5,1.0">
             <Image.RenderTransform>
                 <ScaleTransform x:Name="SpriteFlipTransform" ScaleX="1" ScaleY="1" />
             </Image.RenderTransform>

@@ -321,7 +321,7 @@ void Assert(bool condition, string name)
     Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
-    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.3", "Assembly version matches project Version (0.0.3)");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.4", "Assembly version matches project Version (0.0.4)");
 
     // AutoStartService formatting & parsing
     string formatted = AutoStartService.FormatRunCommand(@"C:\Program Files\Aemeath\AemeathCompanion.exe");
@@ -329,6 +329,22 @@ void Assert(bool condition, string name)
         "AutoStartService quotes executable path with spaces");
     Assert(AutoStartService.NormalizeRegisteredPath(formatted) == @"C:\Program Files\Aemeath\AemeathCompanion.exe",
         "AutoStartService extracts clean path from quoted registry value");
+
+    // BoingAnimator Squash & Stretch curve verification
+    var (sqX, sqY) = BoingAnimator.Evaluate(BoingAnimator.SquishPeakSeconds);
+    Assert(sqX > 1.15 && sqY < 0.85 && Math.Abs(sqX * sqY - 1.0) < 0.06,
+        "Boing squish phase widens and flattens while roughly preserving volume");
+
+    var (stX, stY) = BoingAnimator.Evaluate(BoingAnimator.SquishPeakSeconds + Math.PI / 23.0);
+    Assert(stX < 0.96 && stY > 1.08 && Math.Abs(stX * stY - 1.0) < 0.06,
+        "Boing rebound phase stretches upward with counter-narrowing");
+
+    var boing = new BoingAnimator();
+    boing.Trigger();
+    Assert(boing.IsActive, "BoingAnimator activates on Trigger()");
+    for (int i = 0; i < 40; i++) boing.Update(0.016);
+    Assert(!boing.IsActive && boing.ScaleX == 1.0 && boing.ScaleY == 1.0,
+        "BoingAnimator settles cleanly back to (1.0, 1.0) after 0.56s");
 }
 
 // ============================================================

@@ -15,6 +15,7 @@ public partial class CompanionWindow : Window
 {
     private readonly GifSpriteBank _sprites = new();
     private readonly CompanionController _controller = new();
+    private readonly BoingAnimator _boing = new();
     private readonly WindowPlatformScanner _platformScanner = new();
     private readonly WasapiLoopbackAnalyzer _audioAnalyzer = new();
     private readonly SmtcMediaService _smtcService;
@@ -38,6 +39,8 @@ public partial class CompanionWindow : Window
     private string _currentSpriteName = string.Empty;
     private int _currentFrameIndex;
     private double _frameElapsed;
+    private double _padLeftDip;
+    private double _padTopDip;
 
     // Input state
     private bool _leftArmed;
@@ -47,7 +50,7 @@ public partial class CompanionWindow : Window
     private double _pressTimeSec;
     private double _grabOffsetX;
     private double _grabOffsetY;
-    private double _lastClickTimeSec = -10;
+    private double _lastClickDownTimeSec = -10;
     private NativePoint _lastClickPosPx;
 
     // Win32 handles & foreground hook
@@ -266,6 +269,7 @@ public partial class CompanionWindow : Window
         }
 
         MoveSelfPhysical(enforceTopmost: enforceTop);
+        _boing.Update(dt);
         AdvanceSpriteAnimation(dt);
 
         _bubbleWindow.UpdateLayoutAndRender(
@@ -314,9 +318,13 @@ public partial class CompanionWindow : Window
             }
         }
 
-        double desiredScaleX = _controller.ShouldFlipHorizontal ? -1.0 : 1.0;
-        if (Math.Abs(SpriteFlipTransform.ScaleX - desiredScaleX) > 0.01)
+        double facingSign = _controller.ShouldFlipHorizontal ? -1.0 : 1.0;
+        double desiredScaleX = facingSign * _boing.ScaleX;
+        double desiredScaleY = _boing.ScaleY;
+        if (Math.Abs(SpriteFlipTransform.ScaleX - desiredScaleX) > 0.001)
             SpriteFlipTransform.ScaleX = desiredScaleX;
+        if (Math.Abs(SpriteFlipTransform.ScaleY - desiredScaleY) > 0.001)
+            SpriteFlipTransform.ScaleY = desiredScaleY;
     }
 
     private void ApplyCurrentSpriteFrame(bool forceRedraw)
@@ -332,12 +340,30 @@ public partial class CompanionWindow : Window
     private void ApplyWindowScale()
     {
         var metrics = _controller.ActiveMetrics;
-        double widthDip = Math.Max(48.0, metrics.WidthDip * _controller.SizeMultiplier);
-        double heightDip = Math.Max(48.0, metrics.HeightDip * _controller.SizeMultiplier);
-        if (Math.Abs(Width - widthDip) > 0.25 || Math.Abs(Height - heightDip) > 0.25)
+        double spriteW = Math.Max(48.0, metrics.WidthDip * _controller.SizeMultiplier);
+        double spriteH = Math.Max(48.0, metrics.HeightDip * _controller.SizeMultiplier);
+
+        // Transparent elastic padding around the sprite so Squash & Stretch never clips at window edges
+        _padLeftDip = Math.Ceiling(spriteW * 0.16);
+        _padTopDip = Math.Ceiling(spriteH * 0.20);
+        double padRightDip = _padLeftDip;
+        double padBottomDip = Math.Ceiling(spriteH * 0.04);
+
+        double winW = spriteW + _padLeftDip + padRightDip;
+        double winH = spriteH + _padTopDip + padBottomDip;
+
+        SpriteImage.Width = spriteW;
+        SpriteImage.Height = spriteH;
+        SpriteImage.Margin = new Thickness(_padLeftDip, _padTopDip, 0, 0);
+
+        // Anchor squash & stretch at the sprite's resting contact baseline so feet stay planted on platforms
+        double pivotY = Math.Clamp(1.0 - (metrics.BottomPadDip / Math.Max(1.0, metrics.HeightDip)), 0.5, 1.0);
+        SpriteImage.RenderTransformOrigin = new Point(0.5, pivotY);
+
+        if (Math.Abs(Width - winW) > 0.25 || Math.Abs(Height - winH) > 0.25)
         {
-            Width = widthDip;
-            Height = heightDip;
+            Width = winW;
+            Height = winH;
         }
     }
 
@@ -347,8 +373,8 @@ public partial class CompanionWindow : Window
         double dpiScale = CurrentDpiScale();
         double halfW = _controller.HalfWidthPx(dpiScale);
         double halfH = _controller.HalfHeightPx(dpiScale);
-        int leftPx = (int)Math.Round(_controller.X - halfW);
-        int topPx = (int)Math.Round(_controller.Y - halfH);
+        int leftPx = (int)Math.Round(_controller.X - halfW - _padLeftDip * dpiScale);
+        int topPx = (int)Math.Round(_controller.Y - halfH - _padTopDip * dpiScale);
         Win32Interop.MoveWindowPhysical(_hwnd, leftPx, topPx, enforceTopmost);
     }
 
@@ -382,7 +408,7 @@ public partial class CompanionWindow : Window
             if (dx * dx + dy * dy > thresh * thresh)
             {
                 _dragStarted = true;
-                _lastClickTimeSec = -10; // Cancel any pending double-click sequence
+                _lastClickDownTimeSec = -10; // Cancel any pending double-click sequence
                 _controller.BeginDrag(_monitors, dpiScale);
                 _audioAnalyzer.SetActive(_controller.MusicPlaying);
             }
@@ -430,7 +456,7 @@ public partial class CompanionWindow : Window
         if (_dragStarted)
         {
             _dragStarted = false;
-            _lastClickTimeSec = -10;
+            _lastClickDownTimeSec = -10;
             // Refresh platforms right before drop so landing is exact
             if (_controller.Mode == CompanionMode.B)
             {
@@ -441,24 +467,29 @@ public partial class CompanionWindow : Window
             return;
         }
 
-        // Only evaluate double-click on clean non-drag release so a quick click + drag never hijacks into mode toggle
-        double now = _clock.Elapsed.TotalSeconds;
-        double dblIntervalSec = Math.Clamp(Win32Interop.GetDoubleClickTime() / 1000.0, 0.2, 0.7);
-        double maxDist = 24.0 * dpiScale;
-        double cdx = _pressCursorPx.X - _lastClickPosPx.X;
-        double cdy = _pressCursorPx.Y - _lastClickPosPx.Y;
-        bool isDoubleClick = (now - _lastClickTimeSec) <= dblIntervalSec &&
-                             (cdx * cdx + cdy * cdy) <= maxDist * maxDist;
+        // Standard Windows double-click criteria:
+        // 1st click Down -> 2nd click Down within GetDoubleClickTime()
+        // and within SM_CXDOUBLECLK x SM_CYDOUBLECLK rectangle (evaluated on non-drag release).
+        double dblIntervalSec = Win32Interop.GetDoubleClickTime() / 1000.0;
+        double halfDblW = Math.Max(2.0, Win32Interop.GetSystemMetrics(Win32Interop.SM_CXDOUBLECLK) * 0.5);
+        double halfDblH = Math.Max(2.0, Win32Interop.GetSystemMetrics(Win32Interop.SM_CYDOUBLECLK) * 0.5);
+        double downToDownSec = _pressTimeSec - _lastClickDownTimeSec;
+        bool isDoubleClick = downToDownSec >= 0 &&
+                             downToDownSec <= dblIntervalSec &&
+                             Math.Abs(_pressCursorPx.X - _lastClickPosPx.X) <= halfDblW &&
+                             Math.Abs(_pressCursorPx.Y - _lastClickPosPx.Y) <= halfDblH;
 
         if (isDoubleClick)
         {
-            _lastClickTimeSec = -10;
+            _lastClickDownTimeSec = -10;
+            _boing.Trigger(1.05);
             _controller.HandleDoubleClick(_monitors, dpiScale);
         }
         else
         {
-            _lastClickTimeSec = now;
+            _lastClickDownTimeSec = _pressTimeSec;
             _lastClickPosPx = _pressCursorPx;
+            _boing.Trigger(1.0);
             _controller.HandleSingleClick(_monitors, dpiScale);
         }
 
