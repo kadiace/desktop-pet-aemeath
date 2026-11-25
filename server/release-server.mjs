@@ -99,7 +99,7 @@ export function loadGitReleases(repoDir, releasesDir) {
                 '-C', repoDir,
                 'for-each-ref',
                 '--sort=-version:refname',
-                '--format=%(refname:short)\t%(creatordate:iso-strict)\t%(subject)',
+                '--format=%(refname:short)\t%(objecttype)\t%(creatordate:iso-strict)\t%(subject)',
                 'refs/tags'
             ],
             { encoding: 'utf8', windowsHide: true }
@@ -114,8 +114,11 @@ export function loadGitReleases(repoDir, releasesDir) {
         .filter(Boolean);
 
     const items = lines.map(line => {
-        const [tag = '', releasedAt = '', ...noteParts] = line.split('\t');
-        const notes = noteParts.join('\t').trim();
+        const [tag = '', objectType = '', releasedAt = '', ...noteParts] = line.split('\t');
+        // Lightweight tags (objectType === 'commit') have no tag release note of their own;
+        // do not fall back to the raw commit message — show '-' instead.
+        const rawNote = noteParts.join('\t').trim();
+        const notes = objectType === 'tag' && rawNote ? rawNote : '-';
         const archivePath = findReleaseArchive(releasesDir, tag);
         let fileName = null;
         let sizeBytes = 0;
@@ -214,7 +217,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
         ? `<div class="hero-meta">
              <span>버전: <b>${escapeHtml(heroRelease.tag)}</b></span>
              <span>배포일: <b>${escapeHtml(formatDate(heroRelease.releasedAt))}</b></span>
-             ${heroRelease.notes ? `<span>변경 사항: <b>${escapeHtml(heroRelease.notes)}</b></span>` : ''}
+             ${heroRelease.notes && heroRelease.notes !== '-' ? `<span>변경 사항: <b>${escapeHtml(heroRelease.notes)}</b></span>` : ''}
            </div>
            ${heroRelease.sha256 ? `<div class="sha">SHA-256: <code>${escapeHtml(heroRelease.sha256)}</code></div>` : ''}`
         : '';
@@ -577,7 +580,19 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
         reloading = true;
         toast.textContent = '✦ 새 릴리즈(' + (tag || 'updated') + ') 감지 — 자동 새로고침 중...';
         toast.style.display = 'block';
-        setTimeout(() => window.location.reload(), 350);
+        setTimeout(() => window.location.reload(), 300);
+      }
+
+      async function checkForChange() {
+        if (reloading) return;
+        try {
+          const resp = await fetch('/api/releases?t=' + Date.now(), { cache: 'no-store' });
+          if (!resp.ok) return;
+          const data = await resp.json();
+          if (data.signature && data.signature !== initialSignature) {
+            triggerReload(data.latestTag);
+          }
+        } catch {}
       }
 
       if (typeof EventSource !== 'undefined') {
@@ -595,7 +610,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
         es.addEventListener('releases-updated', (ev) => {
           try {
             const data = JSON.parse(ev.data);
-            if (!data.signature || data.signature !== initialSignature) {
+            if (data.force || !data.signature || data.signature !== initialSignature) {
               triggerReload(data.latestTag);
             }
           } catch {
@@ -607,6 +622,12 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
           liveText.textContent = '실시간 감시 재연결 중...';
         };
       }
+
+      // Guaranteed fallback polling every 3s + immediate check when tab regains focus
+      setInterval(checkForChange, 3000);
+      document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) checkForChange();
+      });
     })();
   </script>
 </body>
@@ -620,6 +641,9 @@ export function createReleaseServer({
     port = DEFAULT_PORT,
     enableWatcher = true
 } = {}) {
+    if (enableWatcher) {
+        fs.mkdirSync(releasesDir, { recursive: true });
+    }
     const mascotPath = path.join(repoDir, 'Assets', 'Sprites', 'idle1.gif');
     const sseClients = new Set();
     let lastReleases = loadGitReleases(repoDir, releasesDir);
@@ -651,6 +675,7 @@ export function createReleaseServer({
                 latestVersion: current[0]?.version ?? null,
                 count: current.length,
                 signature: sig,
+                force,
                 reason
             });
         }
@@ -730,12 +755,15 @@ export function createReleaseServer({
         }
 
         if (pathname === '/api/events') {
+            req.socket?.setNoDelay?.(true);
             res.writeHead(200, {
                 'Content-Type': 'text/event-stream; charset=utf-8',
                 'Cache-Control': 'no-cache, no-transform',
                 'Connection': 'keep-alive',
+                'X-Accel-Buffering': 'no',
                 'Access-Control-Allow-Origin': '*'
             });
+            res.flushHeaders?.();
             const current = loadGitReleases(repoDir, releasesDir);
             const sig = computeReleaseSignature(current);
             lastReleases = current;
@@ -780,10 +808,12 @@ export function createReleaseServer({
         }
 
         if (pathname === '/api/releases') {
-            const releases = loadGitReleases(repoDir, releasesDir).map(toPublicRelease);
+            const raw = loadGitReleases(repoDir, releasesDir);
+            const releases = raw.map(toPublicRelease);
             sendJson(200, {
                 latestTag: releases[0]?.tag ?? null,
                 latestVersion: releases[0]?.version ?? null,
+                signature: computeReleaseSignature(raw),
                 portalUrl: publicUrl,
                 releases
             });

@@ -1,17 +1,18 @@
 namespace AemeathCompanion.Engine;
 
 /// <summary>
-/// Volume-preserving Squash &amp; Stretch ("뽀잉~") spring animator for tactile click feedback.
-/// Phase 1 (0..75ms): fast ease-out squish down (wide &amp; flat like soft mochi).
-/// Phase 2 (75..560ms): underdamped harmonic spring rebound (tall stretch -> soft squish -> micro-bounce -> rest).
+/// Single-cycle volume-preserving Squash &amp; Stretch ("뽀잉~") animator for tactile click feedback.
+/// Phase 1 (0..75ms): smooth squish down (wide &amp; soft).
+/// Phase 2 (75..195ms): single joyful upward stretch ("뽀잉!").
+/// Phase 3 (195..340ms): smooth settle directly back to (1.0, 1.0) with no extra bounce.
 /// </summary>
 public sealed class BoingAnimator
 {
     public const double SquishPeakSeconds = 0.075;
-    public const double TotalDurationSeconds = 0.56;
-    private const double SquishAmplitude = 0.18;
-    private const double DampingRate = 4.6;
-    private const double AngularFrequency = 23.0;
+    public const double StretchPeakSeconds = 0.195;
+    public const double TotalDurationSeconds = 0.34;
+    private const double SquishDepth = 0.15;
+    private const double StretchHeight = 0.11;
 
     private double _elapsed = TotalDurationSeconds;
     private double _intensity = 1.0;
@@ -53,30 +54,35 @@ public sealed class BoingAnimator
         if (elapsedSeconds <= 0.0 || elapsedSeconds >= TotalDurationSeconds)
             return (1.0, 1.0);
 
-        double amp = SquishAmplitude * intensity;
+        double squish = -SquishDepth * intensity;
+        double stretch = StretchHeight * intensity;
         double deltaY;
 
         if (elapsedSeconds <= SquishPeakSeconds)
         {
-            // Fast cubic ease-out squish down
             double p = elapsedSeconds / SquishPeakSeconds;
-            double easeOut = 1.0 - Math.Pow(1.0 - p, 3.0);
-            deltaY = -amp * easeOut;
+            deltaY = squish * SmoothCosine(p);
+        }
+        else if (elapsedSeconds <= StretchPeakSeconds)
+        {
+            double p = (elapsedSeconds - SquishPeakSeconds) / (StretchPeakSeconds - SquishPeakSeconds);
+            deltaY = squish + (stretch - squish) * SmoothCosine(p);
         }
         else
         {
-            // Underdamped spring rebound with smooth fade over the final 80ms
-            double u = elapsedSeconds - SquishPeakSeconds;
-            double spring = -amp * Math.Exp(-DampingRate * u) * Math.Cos(AngularFrequency * u);
-
-            double remain = TotalDurationSeconds - elapsedSeconds;
-            double tailFade = remain < 0.08 ? Math.Clamp(remain / 0.08, 0.0, 1.0) : 1.0;
-            deltaY = spring * tailFade;
+            double p = (elapsedSeconds - StretchPeakSeconds) / (TotalDurationSeconds - StretchPeakSeconds);
+            deltaY = stretch * (1.0 - SmoothCosine(p));
         }
 
-        double scaleY = Math.Clamp(1.0 + deltaY, 0.72, 1.24);
-        // Volume-preserving horizontal counter-scale: area stays roughly constant
-        double scaleX = Math.Clamp(1.0 / Math.Pow(scaleY, 0.85), 0.80, 1.30);
+        double scaleY = Math.Clamp(1.0 + deltaY, 0.76, 1.22);
+        // Volume-preserving horizontal counter-scale
+        double scaleX = Math.Clamp(1.0 / Math.Pow(scaleY, 0.85), 0.82, 1.26);
         return (scaleX, scaleY);
+    }
+
+    private static double SmoothCosine(double t)
+    {
+        t = Math.Clamp(t, 0.0, 1.0);
+        return 0.5 - 0.5 * Math.Cos(Math.PI * t);
     }
 }

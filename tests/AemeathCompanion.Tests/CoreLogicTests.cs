@@ -330,21 +330,32 @@ void Assert(bool condition, string name)
     Assert(AutoStartService.NormalizeRegisteredPath(formatted) == @"C:\Program Files\Aemeath\AemeathCompanion.exe",
         "AutoStartService extracts clean path from quoted registry value");
 
-    // BoingAnimator Squash & Stretch curve verification
+    // BoingAnimator single-cycle Squash & Stretch curve verification
     var (sqX, sqY) = BoingAnimator.Evaluate(BoingAnimator.SquishPeakSeconds);
-    Assert(sqX > 1.15 && sqY < 0.85 && Math.Abs(sqX * sqY - 1.0) < 0.06,
+    Assert(sqX > 1.12 && sqY < 0.87 && Math.Abs(sqX * sqY - 1.0) < 0.06,
         "Boing squish phase widens and flattens while roughly preserving volume");
 
-    var (stX, stY) = BoingAnimator.Evaluate(BoingAnimator.SquishPeakSeconds + Math.PI / 23.0);
-    Assert(stX < 0.96 && stY > 1.08 && Math.Abs(stX * stY - 1.0) < 0.06,
-        "Boing rebound phase stretches upward with counter-narrowing");
+    var (stX, stY) = BoingAnimator.Evaluate(BoingAnimator.StretchPeakSeconds);
+    Assert(stX < 0.94 && stY > 1.09 && Math.Abs(stX * stY - 1.0) < 0.06,
+        "Boing stretch phase rebounds upward with counter-narrowing");
+
+    // Verify strictly monotonic return (no second squish or extra bounce after StretchPeakSeconds)
+    bool noSecondBounce = true;
+    double prevY = stY;
+    for (double t = BoingAnimator.StretchPeakSeconds + 0.01; t <= BoingAnimator.TotalDurationSeconds; t += 0.01)
+    {
+        var (_, sy) = BoingAnimator.Evaluate(t);
+        if (sy > prevY + 1e-6 || sy < 1.0 - 1e-6) { noSecondBounce = false; break; }
+        prevY = sy;
+    }
+    Assert(noSecondBounce, "Boing settles monotonically in 1 cycle with no second bounce");
 
     var boing = new BoingAnimator();
     boing.Trigger();
     Assert(boing.IsActive, "BoingAnimator activates on Trigger()");
-    for (int i = 0; i < 40; i++) boing.Update(0.016);
+    for (int i = 0; i < 25; i++) boing.Update(0.016);
     Assert(!boing.IsActive && boing.ScaleX == 1.0 && boing.ScaleY == 1.0,
-        "BoingAnimator settles cleanly back to (1.0, 1.0) after 0.56s");
+        "BoingAnimator settles cleanly back to (1.0, 1.0) after 0.34s");
 }
 
 // ============================================================
