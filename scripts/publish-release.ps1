@@ -1,4 +1,4 @@
-param(
+﻿param(
     [string]$Version = "",
     [string]$Notes = "",
     [switch]$CreateTag,
@@ -74,3 +74,11 @@ Write-Host "  Archive : $zipPath ($sizeMb MB)"
 Write-Host "  SHA-256 : $hash"
 Write-Host "  Portal  : http://172.21.10.15:17515/"
 Write-Host "  Download: http://172.21.10.15:17515/download/$tag"
+
+# Notify running LAN release server (if active) so open browser portals auto-refresh immediately
+try {
+    $null = Invoke-RestMethod -Method Post -Uri "http://127.0.0.1:17515/api/webhook/refresh" -TimeoutSec 2 -ErrorAction Stop
+    Write-Host "  LiveHook: Notified connected web portals to refresh" -ForegroundColor Cyan
+} catch {
+    # Server not running locally — ignore silently
+}

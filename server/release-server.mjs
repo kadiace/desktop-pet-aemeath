@@ -175,7 +175,13 @@ function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
-function renderPortalHtml(releases, publicUrl) {
+function computeReleaseSignature(releases) {
+    return releases
+        .map(r => `${r.tag}|${r.hasDownload ? 1 : 0}|${r.sizeBytes}|${r.sha256 ?? ''}|${r.notes ?? ''}`)
+        .join('\n');
+}
+
+function renderPortalHtml(releases, publicUrl, initialSignature) {
     const latest = releases[0] ?? null;
     const latestDownloadable = releases.find(r => r.hasDownload) ?? null;
     const heroRelease = latest;
@@ -470,6 +476,38 @@ function renderPortalHtml(releases, publicUrl) {
       margin-right: 12px;
     }
     .footer-links a:hover { text-decoration: underline; }
+    .live-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 3px 9px;
+      background: var(--panel);
+      border: 1px solid var(--plum);
+      font-size: 11px;
+      color: var(--cyan);
+    }
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background: var(--cyan);
+      display: inline-block;
+    }
+    .live-pill.offline { color: var(--pink); }
+    .live-pill.offline .live-dot { background: var(--pink); }
+    .reload-toast {
+      position: fixed;
+      right: 20px;
+      bottom: 20px;
+      padding: 12px 16px;
+      background: var(--rose);
+      color: var(--cream);
+      border: 2px solid var(--glint);
+      box-shadow: 0 0 0 2px var(--outline), 0 8px 24px rgba(0,0,0,0.45);
+      font-size: 13px;
+      font-weight: 700;
+      display: none;
+      z-index: 9999;
+    }
   </style>
 </head>
 <body>
@@ -519,9 +557,58 @@ function renderPortalHtml(releases, publicUrl) {
         <a href="/api/releases">GET /api/releases</a>
         <a href="/download/latest">GET /download/latest</a>
       </div>
-      <div>우클릭 메뉴 하단의 <b>최신 확인 / 업데이트</b> 버튼과 자동 연동됩니다.</div>
+      <div class="live-pill" id="livePill">
+        <span class="live-dot"></span>
+        <span id="liveText">새 태그 자동 새로고침 대기 중</span>
+      </div>
     </div>
   </div>
+  <div class="reload-toast" id="reloadToast"></div>
+  <script>
+    (function () {
+      const initialSignature = ${JSON.stringify(initialSignature)};
+      const livePill = document.getElementById('livePill');
+      const liveText = document.getElementById('liveText');
+      const toast = document.getElementById('reloadToast');
+      let reloading = false;
+
+      function triggerReload(tag) {
+        if (reloading) return;
+        reloading = true;
+        toast.textContent = '✦ 새 릴리즈(' + (tag || 'updated') + ') 감지 — 자동 새로고침 중...';
+        toast.style.display = 'block';
+        setTimeout(() => window.location.reload(), 350);
+      }
+
+      if (typeof EventSource !== 'undefined') {
+        const es = new EventSource('/api/events');
+        es.addEventListener('connected', (ev) => {
+          livePill.classList.remove('offline');
+          liveText.textContent = '실시간 태그 감시 연결됨';
+          try {
+            const data = JSON.parse(ev.data);
+            if (data.signature && data.signature !== initialSignature) {
+              triggerReload(data.latestTag);
+            }
+          } catch {}
+        });
+        es.addEventListener('releases-updated', (ev) => {
+          try {
+            const data = JSON.parse(ev.data);
+            if (!data.signature || data.signature !== initialSignature) {
+              triggerReload(data.latestTag);
+            }
+          } catch {
+            triggerReload('');
+          }
+        });
+        es.onerror = () => {
+          livePill.classList.add('offline');
+          liveText.textContent = '실시간 감시 재연결 중...';
+        };
+      }
+    })();
+  </script>
 </body>
 </html>`;
 }
@@ -530,11 +617,92 @@ export function createReleaseServer({
     repoDir = path.resolve(__dirname, '..'),
     releasesDir = path.resolve(__dirname, '..', 'releases'),
     publicHost = DEFAULT_PUBLIC_HOST,
-    port = DEFAULT_PORT
+    port = DEFAULT_PORT,
+    enableWatcher = true
 } = {}) {
     const mascotPath = path.join(repoDir, 'Assets', 'Sprites', 'idle1.gif');
+    const sseClients = new Set();
+    let lastReleases = loadGitReleases(repoDir, releasesDir);
+    let lastSignature = computeReleaseSignature(lastReleases);
+    let debounceTimer = null;
+    const watchers = [];
 
-    return http.createServer((req, res) => {
+    function broadcast(eventName, payload) {
+        const frame = `event: ${eventName}\ndata: ${JSON.stringify(payload)}\n\n`;
+        for (const client of sseClients) {
+            try {
+                client.write(frame);
+            } catch {
+                sseClients.delete(client);
+            }
+        }
+    }
+
+    function checkAndNotify(reason = 'watch', force = false) {
+        const current = loadGitReleases(repoDir, releasesDir);
+        const sig = computeReleaseSignature(current);
+        const changed = sig !== lastSignature;
+        lastReleases = current;
+        lastSignature = sig;
+
+        if (changed || force) {
+            broadcast('releases-updated', {
+                latestTag: current[0]?.tag ?? null,
+                latestVersion: current[0]?.version ?? null,
+                count: current.length,
+                signature: sig,
+                reason
+            });
+        }
+        return { changed, latestTag: current[0]?.tag ?? null, count: current.length, notified: sseClients.size };
+    }
+
+    function scheduleWatchCheck(reason) {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            debounceTimer = null;
+            checkAndNotify(reason, false);
+        }, 250);
+    }
+
+    let pollInterval = null;
+    let heartbeatInterval = null;
+
+    if (enableWatcher) {
+        const watchTargets = [
+            path.join(repoDir, '.git', 'refs', 'tags'),
+            path.join(repoDir, '.git'),
+            releasesDir
+        ];
+        for (const dir of watchTargets) {
+            try {
+                if (fs.existsSync(dir)) {
+                    const w = fs.watch(dir, { persistent: false }, (_eventType, filename) => {
+                        if (dir.endsWith('.git') && filename && filename !== 'packed-refs') return;
+                        scheduleWatchCheck('fs-watch');
+                    });
+                    w.on('error', () => {});
+                    watchers.push(w);
+                }
+            } catch {}
+        }
+
+        // Lightweight fallback poll every 3s in case Git atomic renames skip an fs.watch event
+        pollInterval = setInterval(() => {
+            if (sseClients.size > 0) checkAndNotify('poll', false);
+        }, 3000);
+        pollInterval.unref();
+
+        // SSE keepalive every 25s
+        heartbeatInterval = setInterval(() => {
+            for (const client of sseClients) {
+                try { client.write(': keepalive\n\n'); } catch { sseClients.delete(client); }
+            }
+        }, 25000);
+        heartbeatInterval.unref();
+    }
+
+    const server = http.createServer((req, res) => {
         const reqUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
         const pathname = reqUrl.pathname;
         const publicUrl = `http://${publicHost}:${port}`;
@@ -549,8 +717,32 @@ export function createReleaseServer({
             res.end(body);
         };
 
+        // Webhook endpoint so publish-release.ps1 or Git hooks can push instant refresh notifications
+        if (pathname === '/api/webhook/refresh' && (req.method === 'POST' || req.method === 'GET')) {
+            const result = checkAndNotify('webhook', true);
+            sendJson(200, { ok: true, ...result });
+            return;
+        }
+
         if (req.method !== 'GET' && req.method !== 'HEAD') {
             sendJson(405, { error: 'Method Not Allowed' });
+            return;
+        }
+
+        if (pathname === '/api/events') {
+            res.writeHead(200, {
+                'Content-Type': 'text/event-stream; charset=utf-8',
+                'Cache-Control': 'no-cache, no-transform',
+                'Connection': 'keep-alive',
+                'Access-Control-Allow-Origin': '*'
+            });
+            const current = loadGitReleases(repoDir, releasesDir);
+            const sig = computeReleaseSignature(current);
+            lastReleases = current;
+            lastSignature = sig;
+            res.write(`event: connected\ndata: ${JSON.stringify({ latestTag: current[0]?.tag ?? null, signature: sig })}\n\n`);
+            sseClients.add(res);
+            req.on('close', () => sseClients.delete(res));
             return;
         }
 
@@ -559,7 +751,8 @@ export function createReleaseServer({
             sendJson(200, {
                 ok: true,
                 latestTag: releases[0]?.tag ?? null,
-                releaseCount: releases.length
+                releaseCount: releases.length,
+                sseClients: sseClients.size
             });
             return;
         }
@@ -640,7 +833,8 @@ export function createReleaseServer({
 
         if (pathname === '/' || pathname === '/index.html') {
             const releases = loadGitReleases(repoDir, releasesDir);
-            const html = renderPortalHtml(releases, publicUrl);
+            const sig = computeReleaseSignature(releases);
+            const html = renderPortalHtml(releases, publicUrl, sig);
             res.writeHead(200, {
                 'Content-Type': 'text/html; charset=utf-8',
                 'Cache-Control': 'no-store'
@@ -651,6 +845,21 @@ export function createReleaseServer({
 
         sendJson(404, { error: 'Not Found' });
     });
+
+    server.on('close', () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        if (pollInterval) clearInterval(pollInterval);
+        if (heartbeatInterval) clearInterval(heartbeatInterval);
+        for (const w of watchers) {
+            try { w.close(); } catch {}
+        }
+        for (const client of sseClients) {
+            try { client.end(); } catch {}
+        }
+        sseClients.clear();
+    });
+
+    return server;
 }
 
 // Direct CLI entrypoint
