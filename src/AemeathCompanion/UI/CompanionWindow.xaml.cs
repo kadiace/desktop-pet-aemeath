@@ -661,7 +661,10 @@ public partial class CompanionWindow : Window
     {
         _trayService.OpenMenuRequested += () => Dispatcher.BeginInvoke(OpenActionMenu);
         _trayService.SwitchModeARequested += () => Dispatcher.BeginInvoke(() =>
-            _controller.SetMode(CompanionMode.A, _monitors, CurrentDpiScale()));
+        {
+            _controller.SetMode(CompanionMode.A, _monitors, CurrentDpiScale());
+            _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
+        });
         _trayService.SwitchModeBRequested += () => Dispatcher.BeginInvoke(() =>
         {
             _controller.SetMode(CompanionMode.B, _monitors, CurrentDpiScale());

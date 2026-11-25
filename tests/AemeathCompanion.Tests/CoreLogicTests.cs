@@ -239,12 +239,37 @@ void Assert(bool condition, string name)
         ctrl.Tick(0.05, monitors, [floorPlat], null, 1.0);
     Assert(!ctrl.ShouldShowPlatformMiniPlayer, "Platform mini player auto-hides after 5 minutes paused");
 
-    // Switching Roam -> Platform while music is actively playing brings up the Platform mini player immediately
+    // Explicitly selecting Roam while music plays stays in Roam AND displays the horizontal mini player
     ctrl.UpdateMusicState(true, monitors, 1.0);
     ctrl.SetMode(CompanionMode.A, monitors, 1.0);
     ctrl.UpdateMusicState(true, monitors, 1.0);
-    Assert(ctrl.Mode == CompanionMode.A && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble && !ctrl.ShouldShowPlatformMiniPlayer,
-        "Switching Platform -> Roam while music plays stays in Roam (hides mini player and does not hijack into Music mode)");
+    Assert(ctrl.Mode == CompanionMode.A && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.ShouldShowPlatformMiniPlayer,
+        "Explicitly selecting Roam while music plays stays in Roam and shows the horizontal mini player");
+
+    // In Roam with mini player: dragging & clicking while playing keeps mini player visible
+    ctrl.BeginDrag(monitors, 1.0);
+    Assert(ctrl.IsDragging && ctrl.Mode == CompanionMode.A && ctrl.ShouldShowPlatformMiniPlayer,
+        "Roam mini player stays visible while dragging during active playback");
+    ctrl.EndDrag(monitors, 1.0);
+    ctrl.HandleSingleClick(monitors, 1.0);
+    Assert(ctrl.Mode == CompanionMode.A && ctrl.ShouldShowPlatformMiniPlayer,
+        "Roam mini player stays visible on single-click during active playback");
+
+    // Pausing music in Roam mini player holds for 5 minutes and hides immediately on click or drag
+    ctrl.UpdateMusicState(false, monitors, 1.0);
+    Assert(ctrl.Mode == CompanionMode.A && ctrl.ShouldShowPlatformMiniPlayer && ctrl.PlatformMiniPlayerHeld,
+        "Pausing music in Roam mini player holds mini player");
+    ctrl.HandleSingleClick(monitors, 1.0);
+    Assert(!ctrl.ShouldShowPlatformMiniPlayer,
+        "Single-clicking while paused immediately hides Roam mini player");
+
+    // Restarting playback in Roam enters full Music mode, and selecting Roam from Music mode shows Roam mini player
+    ctrl.UpdateMusicState(true, monitors, 1.0);
+    Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble && !ctrl.ShouldShowPlatformMiniPlayer,
+        "Restarting playback in Roam enters full Music mode");
+    ctrl.SetMode(CompanionMode.A, monitors, 1.0);
+    Assert(ctrl.Mode == CompanionMode.A && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.ShouldShowPlatformMiniPlayer,
+        "Selecting Roam from active Music mode exits Music mode and shows horizontal mini player in Roam");
 
     ctrl.SetMode(CompanionMode.B, monitors, 1.0);
     Assert(ctrl.Mode == CompanionMode.B && ctrl.ShouldShowPlatformMiniPlayer,
@@ -414,7 +439,7 @@ void Assert(bool condition, string name)
     Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
-    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.5", "Assembly version matches project Version (0.0.5)");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.6", "Assembly version matches project Version (0.0.6)");
 
     // AutoStartService formatting & parsing
     string formatted = AutoStartService.FormatRunCommand(@"C:\Program Files\Aemeath\AemeathCompanion.exe");

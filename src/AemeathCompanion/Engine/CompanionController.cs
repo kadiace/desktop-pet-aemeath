@@ -50,6 +50,7 @@ public sealed class CompanionController
     private double _pausedElapsed = -1;
     private bool _platformMiniPlayerHeld;
     private double _platformMiniPauseElapsed = -1;
+    private bool _roamMiniPlayerActive;
     private bool _stateDirty;
     private double _saveCooldown;
     private bool _smtcIsPlaying;
@@ -118,12 +119,15 @@ public sealed class CompanionController
     public bool ShouldShowBubble => MusicPlaying || PlaybackPoseHeld;
 
     /// <summary>
-    /// Compact horizontal mini music player tied to Platform mode:
+    /// Compact horizontal mini music player:
     /// visible whenever music is actively playing in Platform mode (including during drags),
+    /// or in Roam mode when the user explicitly selected Roam while music was playing,
     /// or held up to 5 minutes after pausing until the user clicks/drags.
     /// </summary>
     public bool ShouldShowPlatformMiniPlayer =>
-        Mode == CompanionMode.B && !ShouldShowBubble && (_smtcIsPlaying || _platformMiniPlayerHeld);
+        !ShouldShowBubble &&
+        (_smtcIsPlaying || _platformMiniPlayerHeld) &&
+        (Mode == CompanionMode.B || (Mode == CompanionMode.A && _roamMiniPlayerActive));
 
     public bool ShouldFlipHorizontal
     {
@@ -282,17 +286,32 @@ public sealed class CompanionController
     {
         if (MusicPlaying || PlaybackPoseHeld)
         {
+            bool showMiniInRoam = next == CompanionMode.A && _smtcIsPlaying;
             DismissMusicMode(monitors, dpiScale, explicitTargetMode: next);
+            if (showMiniInRoam)
+            {
+                _roamMiniPlayerActive = true;
+                _platformMiniPlayerHeld = false;
+                _platformMiniPauseElapsed = -1;
+            }
             return;
         }
 
         // If user explicitly chooses Roam while music is already playing (e.g. Platform -> Roam),
-        // respect the user's explicit Roam selection instead of auto-hijacking into Music mode.
-        if (next == CompanionMode.A && _smtcIsPlaying)
+        // respect the user's explicit Roam selection and show the compact horizontal mini player.
+        bool keepRoamMini = next == CompanionMode.A && _smtcIsPlaying;
+        if (keepRoamMini)
+        {
             _musicDismissedWhilePlaying = true;
+            _roamMiniPlayerActive = true;
+            _platformMiniPlayerHeld = false;
+            _platformMiniPauseElapsed = -1;
+        }
 
         if (next == Mode) return;
         SetModeInternal(next, monitors, dpiScale);
+        if (keepRoamMini)
+            _roamMiniPlayerActive = true;
     }
 
     private void SetModeInternal(CompanionMode next, IReadOnlyList<MonitorBounds> monitors, double dpiScale)
@@ -304,6 +323,7 @@ public sealed class CompanionController
         _hasTarget = false;
         _landedHwnd = 0;
         LandedPlatformTitle = string.Empty;
+        _roamMiniPlayerActive = false;
 
         if (Mode == CompanionMode.B)
         {
@@ -399,12 +419,14 @@ public sealed class CompanionController
             MarkDirty();
         }
 
-        // If music is paused in Platform mode, starting a drag immediately hides the mini player.
+        // If music is paused while the mini player is held (Platform or Roam), starting a drag immediately hides it.
         // While music is actively playing, the mini player stays visible during the drag.
-        if (Mode == CompanionMode.B && !_smtcIsPlaying && _platformMiniPlayerHeld)
+        if (!_smtcIsPlaying && _platformMiniPlayerHeld)
         {
             _platformMiniPlayerHeld = false;
             _platformMiniPauseElapsed = -1;
+            if (Mode == CompanionMode.A)
+                _roamMiniPlayerActive = false;
         }
 
         IsDragging = true;
@@ -481,16 +503,18 @@ public sealed class CompanionController
         }
 
         ManualVisual = null;
+        // When paused while mini player is held (Platform or Roam), clicking hides the mini player immediately;
+        // when actively playing, clicking only switches the sprite and keeps the mini player visible.
+        if (!_smtcIsPlaying && _platformMiniPlayerHeld)
+        {
+            _platformMiniPlayerHeld = false;
+            _platformMiniPauseElapsed = -1;
+            if (Mode == CompanionMode.A)
+                _roamMiniPlayerActive = false;
+        }
+
         if (Mode == CompanionMode.B)
         {
-            // When paused in Platform mode, clicking hides the mini player immediately;
-            // when actively playing, clicking only switches the screen sprite and keeps the mini player visible.
-            if (!_smtcIsPlaying && _platformMiniPlayerHeld)
-            {
-                _platformMiniPlayerHeld = false;
-                _platformMiniPauseElapsed = -1;
-            }
-
             bool wasResting = !IsFalling && !IsDragging;
             double oldFootY = Y + FootOffsetPx(dpiScale);
             ChangeScreen();
@@ -528,6 +552,9 @@ public sealed class CompanionController
     public void EnterMusicMode(IReadOnlyList<MonitorBounds> monitors, double dpiScale)
     {
         _musicDismissedWhilePlaying = false;
+        _roamMiniPlayerActive = false;
+        _platformMiniPlayerHeld = false;
+        _platformMiniPauseElapsed = -1;
         _pausedElapsed = _smtcIsPlaying ? -1 : 0;
         MenuOpen = false;
         ManualVisual = null;
@@ -557,7 +584,7 @@ public sealed class CompanionController
         // User actions always take priority: never hijack Platform mode or an active drag into full Music mode
         if ((Mode == CompanionMode.B || IsDragging) && !MusicPlaying && !PlaybackPoseHeld)
         {
-            if (Mode == CompanionMode.B)
+            if (Mode == CompanionMode.B || _roamMiniPlayerActive)
             {
                 if (isMusicPlaying)
                 {
@@ -566,12 +593,14 @@ public sealed class CompanionController
                 }
                 else if (wasSmtcPlaying)
                 {
-                    // Music paused while in Platform mode:
+                    // Music paused while mini player is visible:
                     // if currently dragging, hide immediately; otherwise hold for 5 minutes until click/drag.
                     if (IsDragging)
                     {
                         _platformMiniPlayerHeld = false;
                         _platformMiniPauseElapsed = -1;
+                        if (Mode == CompanionMode.A)
+                            _roamMiniPlayerActive = false;
                     }
                     else
                     {
@@ -582,6 +611,18 @@ public sealed class CompanionController
             }
 
             if (!isMusicPlaying) _musicDismissedWhilePlaying = false;
+            return;
+        }
+
+        // Music paused while Roam mini player is active (not dragging): hold mini player for 5 minutes
+        if (Mode == CompanionMode.A && _roamMiniPlayerActive && !MusicPlaying && !PlaybackPoseHeld && !isMusicPlaying)
+        {
+            if (wasSmtcPlaying)
+            {
+                _platformMiniPlayerHeld = true;
+                _platformMiniPauseElapsed = 0.0;
+            }
+            _musicDismissedWhilePlaying = false;
             return;
         }
 
@@ -606,6 +647,9 @@ public sealed class CompanionController
         {
             _pausedElapsed = -1;
             PlaybackPoseHeld = false;
+            _roamMiniPlayerActive = false;
+            _platformMiniPlayerHeld = false;
+            _platformMiniPauseElapsed = -1;
             MenuOpen = false;
             ManualVisual = null;
             _modeBeforeMusic ??= Mode;
@@ -664,7 +708,7 @@ public sealed class CompanionController
             }
         }
 
-        // 5-minute pause hold timeout for Platform mini music player
+        // 5-minute pause hold timeout for horizontal mini music player (Platform or Roam)
         if (_platformMiniPlayerHeld && !_smtcIsPlaying && _platformMiniPauseElapsed >= 0)
         {
             _platformMiniPauseElapsed += dt;
@@ -672,6 +716,7 @@ public sealed class CompanionController
             {
                 _platformMiniPlayerHeld = false;
                 _platformMiniPauseElapsed = -1;
+                _roamMiniPlayerActive = false;
             }
         }
 
