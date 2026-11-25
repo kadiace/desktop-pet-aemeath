@@ -2,7 +2,8 @@
     [string]$Version = "",
     [string]$Notes = "",
     [switch]$CreateTag,
-    [switch]$SelfContained
+    [switch]$SelfContained,
+    [switch]$ForceOverwrite
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,6 +22,11 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
 $cleanVersion = $Version.Trim().TrimStart('v', 'V')
 $tag = "v$cleanVersion"
 
+$zipPath = Join-Path $ReleasesDir "AemeathCompanion-$tag.zip"
+if ((Test-Path $zipPath) -and (-not $ForceOverwrite)) {
+    throw "Release archive '$zipPath' already exists. Never overwrite an already-published version; bump to a new version (e.g. next patch) instead."
+}
+
 if ($CreateTag) {
     $dirty = git -c safe.directory=* -C $RepoRoot status --porcelain
     if (-not [string]::IsNullOrWhiteSpace($dirty)) {
@@ -35,7 +41,7 @@ if ($CreateTag) {
         }
         Write-Host "[OK] Created git tag $tag" -ForegroundColor Cyan
     } else {
-        Write-Host "[INFO] Git tag $tag already exists" -ForegroundColor Yellow
+        throw "Git tag '$tag' already exists. Never reuse or move a published tag; bump to a new version instead."
     }
 }
 
@@ -59,7 +65,6 @@ if ($LASTEXITCODE -ne 0) {
     throw "dotnet publish failed with exit code $LASTEXITCODE"
 }
 
-$zipPath = Join-Path $ReleasesDir "AemeathCompanion-$tag.zip"
 if (Test-Path $zipPath) { Remove-Item -Force $zipPath }
 Compress-Archive -Path (Join-Path $stageDir "*") -DestinationPath $zipPath -CompressionLevel Optimal
 
