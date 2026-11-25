@@ -218,8 +218,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
              <span>버전: <b>${escapeHtml(heroRelease.tag)}</b></span>
              <span>배포일: <b>${escapeHtml(formatDate(heroRelease.releasedAt))}</b></span>
              ${heroRelease.notes && heroRelease.notes !== '-' ? `<span>변경 사항: <b>${escapeHtml(heroRelease.notes)}</b></span>` : ''}
-           </div>
-           ${heroRelease.sha256 ? `<div class="sha">SHA-256: <code>${escapeHtml(heroRelease.sha256)}</code></div>` : ''}`
+           </div>`
         : '';
 
     const rowsHtml = releases.length === 0
@@ -315,11 +314,6 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
       font-size: 13px;
       font-weight: 700;
     }
-    .title-block .lan-url {
-      margin-top: 4px;
-      color: var(--lavender);
-      font-size: 12px;
-    }
     .hero-btn {
       display: flex;
       align-items: center;
@@ -375,18 +369,6 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
       color: var(--lavender);
     }
     .hero-meta b { color: var(--glow); }
-    .sha {
-      margin-top: 8px;
-      font-size: 11px;
-      color: var(--lavender);
-      word-break: break-all;
-    }
-    .sha code {
-      color: var(--cyan);
-      background: var(--panel);
-      padding: 2px 6px;
-      border: 1px solid var(--plum);
-    }
     h2 {
       margin: 0 0 14px;
       font-size: 16px;
@@ -468,17 +450,11 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
       display: flex;
       flex-wrap: wrap;
       gap: 14px;
-      justify-content: space-between;
+      justify-content: flex-end;
       align-items: center;
       font-size: 12px;
       color: var(--lavender);
     }
-    .footer-links a {
-      color: var(--cyan);
-      text-decoration: none;
-      margin-right: 12px;
-    }
-    .footer-links a:hover { text-decoration: underline; }
     .live-pill {
       display: inline-flex;
       align-items: center;
@@ -521,7 +497,6 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
         <div class="title-block">
           <h1>✦ Aemeath, Digital Ghost</h1>
           <div class="sub">WINDOWS DESKTOP COMPANION // INTERNAL RELEASE PORTAL</div>
-          <div class="lan-url">내부 배포 주소: <code>${escapeHtml(publicUrl)}</code></div>
         </div>
       </div>
       ${heroButtonHtml}
@@ -533,7 +508,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
 
     <section class="pixel-card">
       <h2>
-        <span>전체 버전 목록 (Git Tags)</span>
+        <span>전체 버전 목록</span>
         <span class="count-tag">총 ${releases.length}개 버전</span>
       </h2>
       <div class="table-wrap">
@@ -555,11 +530,6 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
     </section>
 
     <div class="footer-links">
-      <div>
-        <a href="/api/version">GET /api/version</a>
-        <a href="/api/releases">GET /api/releases</a>
-        <a href="/download/latest">GET /download/latest</a>
-      </div>
       <div class="live-pill" id="livePill">
         <span class="live-dot"></span>
         <span id="liveText">새 태그 자동 새로고침 대기 중</span>
@@ -599,7 +569,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
         const es = new EventSource('/api/events');
         es.addEventListener('connected', (ev) => {
           livePill.classList.remove('offline');
-          liveText.textContent = '실시간 태그 감시 연결됨';
+          liveText.textContent = '실시간 태그 감지 연결됨';
           try {
             const data = JSON.parse(ev.data);
             if (data.signature && data.signature !== initialSignature) {
@@ -619,7 +589,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
         });
         es.onerror = () => {
           livePill.classList.add('offline');
-          liveText.textContent = '실시간 감시 재연결 중...';
+          liveText.textContent = '실시간 감지 재연결 중...';
         };
       }
 

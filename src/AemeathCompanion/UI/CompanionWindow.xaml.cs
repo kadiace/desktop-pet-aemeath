@@ -557,6 +557,13 @@ public partial class CompanionWindow : Window
             _updateService.LatestResult,
             _updateService.IsChecking,
             _updateService.IsUpdating);
+
+        // Automatically refresh latest version status whenever the context menu opens
+        // while preserving the manual "최신 확인" button.
+        if (!_updateService.IsChecking && !_updateService.IsUpdating)
+        {
+            OnCheckUpdateRequested();
+        }
     }
 
     private void WireActionMenuEvents()
@@ -624,6 +631,7 @@ public partial class CompanionWindow : Window
 
     private async void OnCheckUpdateRequested()
     {
+        if (_updateService.IsChecking || _updateService.IsUpdating) return;
         _menuWindow.SyncUpdateUi(_updateService.LatestResult, isChecking: true, isUpdating: _updateService.IsUpdating);
         var result = await _updateService.CheckForUpdatesAsync();
         if (!_closing && _menuWindow.IsVisible)

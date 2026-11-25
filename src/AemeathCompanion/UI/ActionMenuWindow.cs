@@ -38,6 +38,9 @@ public sealed class ActionMenuWindow : Window
 
     private bool _suppressSlider;
     private nint _hwnd;
+    private NativeRect _lastWorkRect;
+    private double _lastLeftPx;
+    private double _lastTopPx;
 
     public event Action<CompanionMode>? ModeSelected;
     public event Action? MusicModeSelected;
@@ -437,6 +440,9 @@ public sealed class ActionMenuWindow : Window
             Math.Max(mon.WorkRect.Left + 8 * dpiScale, mon.WorkRect.Right - menuWpx - 8 * dpiScale));
         double topPx = Math.Clamp(companionCenterY - menuHpx * 0.5, mon.WorkRect.Top + 8 * dpiScale,
             Math.Max(mon.WorkRect.Top + 8 * dpiScale, mon.WorkRect.Bottom - menuHpx - 8 * dpiScale));
+        _lastWorkRect = mon.WorkRect;
+        _lastLeftPx = leftPx;
+        _lastTopPx = topPx;
 
         if (_hwnd != 0)
         {
@@ -530,6 +536,7 @@ public sealed class ActionMenuWindow : Window
         _btnCheckUpdate.Content = isChecking ? "확인 중" : "최신 확인";
 
         // Only expose the Update button when a newer version is available
+        var prevVisibility = _btnApplyUpdate.Visibility;
         if (info.IsUpdateAvailable)
         {
             _btnApplyUpdate.Visibility = Visibility.Visible;
@@ -542,6 +549,21 @@ public sealed class ActionMenuWindow : Window
         else
         {
             _btnApplyUpdate.Visibility = Visibility.Collapsed;
+        }
+
+        // If the update button newly appeared while menu is open near the bottom of the monitor, keep it inside work area
+        if (IsVisible && _hwnd != 0 && prevVisibility != _btnApplyUpdate.Visibility && _lastWorkRect.Height > 0)
+        {
+            UpdateLayout();
+            double dpiScale = Win32Interop.GetWindowDpiScale(_hwnd);
+            double menuHpx = ActualHeight * dpiScale;
+            double clampedTop = Math.Clamp(_lastTopPx, _lastWorkRect.Top + 8 * dpiScale,
+                Math.Max(_lastWorkRect.Top + 8 * dpiScale, _lastWorkRect.Bottom - menuHpx - 8 * dpiScale));
+            if (Math.Abs(clampedTop - _lastTopPx) > 0.5)
+            {
+                _lastTopPx = clampedTop;
+                Win32Interop.MoveWindowPhysical(_hwnd, (int)Math.Round(_lastLeftPx), (int)Math.Round(_lastTopPx), enforceTopmost: true);
+            }
         }
     }
 
