@@ -31,16 +31,16 @@ public sealed class CompanionController
     public const double MaxFallSpeedDip = 2200.0;
     public const double PauseReturnSeconds = 5 * 60.0;
 
-    public static (double WidthDip, double HeightDip, double BottomPadDip, double FootHalfWidthDip) GetSpriteMetrics(string spriteName)
+    public static (double WidthDip, double HeightDip, double BottomPadDip, double FootHalfWidthDip, double TopPadDip) GetSpriteMetrics(string spriteName)
     {
         if (string.Equals(spriteName, "screen8", StringComparison.OrdinalIgnoreCase))
-            return (300.0, 200.0, 15.0, 62.0);
+            return (300.0, 200.0, 15.0, 62.0, 30.0);
         if (string.Equals(spriteName, "screen2", StringComparison.OrdinalIgnoreCase) ||
             string.Equals(spriteName, "screen4", StringComparison.OrdinalIgnoreCase))
-            return (200.0, 200.0, 0.0, 42.0);
+            return (200.0, 200.0, 0.0, 42.0, 66.0);
         if (spriteName.StartsWith("screen", StringComparison.OrdinalIgnoreCase))
-            return (200.0, 200.0, 4.0, 42.0);
-        return (200.0, 200.0, 0.0, 42.0);
+            return (200.0, 200.0, 4.0, 42.0, 64.0);
+        return (200.0, 200.0, 0.0, 42.0, 16.0);
     }
 
     private readonly Random _rng;
@@ -48,6 +48,8 @@ public sealed class CompanionController
     private bool _hasTarget;
     private double _actionDelay = 3.0;
     private double _pausedElapsed = -1;
+    private bool _platformMiniPlayerHeld;
+    private double _platformMiniPauseElapsed = -1;
     private bool _stateDirty;
     private double _saveCooldown;
     private bool _smtcIsPlaying;
@@ -73,6 +75,7 @@ public sealed class CompanionController
 
     public bool MusicPlaying { get; private set; }
     public bool PlaybackPoseHeld { get; private set; }
+    public bool PlatformMiniPlayerHeld => _platformMiniPlayerHeld;
     public bool IsDragging { get; private set; }
     public bool IsFalling { get; private set; }
     public double FallSpeed { get; private set; }
@@ -87,7 +90,7 @@ public sealed class CompanionController
         _rng = rng ?? Random.Shared;
     }
 
-    public (double WidthDip, double HeightDip, double BottomPadDip, double FootHalfWidthDip) ActiveMetrics
+    public (double WidthDip, double HeightDip, double BottomPadDip, double FootHalfWidthDip, double TopPadDip) ActiveMetrics
         => GetSpriteMetrics(ActiveSpriteName);
 
     public double HalfWidthPx(double dpiScale) => Math.Max(16.0, (ActiveMetrics.WidthDip * 0.5) * SizeMultiplier * dpiScale);
@@ -113,6 +116,14 @@ public sealed class CompanionController
     }
 
     public bool ShouldShowBubble => MusicPlaying || PlaybackPoseHeld;
+
+    /// <summary>
+    /// Compact horizontal mini music player tied to Platform mode:
+    /// visible whenever music is actively playing in Platform mode (including during drags),
+    /// or held up to 5 minutes after pausing until the user clicks/drags.
+    /// </summary>
+    public bool ShouldShowPlatformMiniPlayer =>
+        Mode == CompanionMode.B && !ShouldShowBubble && (_smtcIsPlaying || _platformMiniPlayerHeld);
 
     public bool ShouldFlipHorizontal
     {
@@ -300,11 +311,18 @@ public sealed class CompanionController
             FallSpeed = 0;
             Action = "idle";
             ChangeScreen();
+            if (_smtcIsPlaying)
+            {
+                _platformMiniPlayerHeld = false;
+                _platformMiniPauseElapsed = -1;
+            }
         }
         else
         {
             IsFalling = false;
             FallSpeed = 0;
+            _platformMiniPlayerHeld = false;
+            _platformMiniPauseElapsed = -1;
             SetIdle(change: true);
         }
 
@@ -368,24 +386,31 @@ public sealed class CompanionController
 
     public void BeginDrag(IReadOnlyList<MonitorBounds>? monitors = null, double dpiScale = 1.0)
     {
-        if (MusicPlaying || PlaybackPoseHeld)
+        // While music is actively playing in Music mode, dragging moves Aemeath directly in Music mode
+        // (keeping the speech bubble and aemeath sprite intact without switching to Platform or Roam).
+        // When music is paused in Music mode (5-minute hold), starting a drag immediately dismisses the hold to Roam.
+        if (!MusicPlaying && PlaybackPoseHeld)
         {
-            if (_smtcIsPlaying) _musicDismissedWhilePlaying = true;
-            MusicPlaying = false;
             PlaybackPoseHeld = false;
             _pausedElapsed = -1;
-            if (_modeBeforeMusic.HasValue)
-            {
-                Mode = _modeBeforeMusic.Value;
-                _modeBeforeMusic = null;
-            }
+            _modeBeforeMusic = null;
+            Mode = CompanionMode.A;
             if (monitors is not null) ClampToMonitors(monitors, dpiScale);
             MarkDirty();
         }
 
+        // If music is paused in Platform mode, starting a drag immediately hides the mini player.
+        // While music is actively playing, the mini player stays visible during the drag.
+        if (Mode == CompanionMode.B && !_smtcIsPlaying && _platformMiniPlayerHeld)
+        {
+            _platformMiniPlayerHeld = false;
+            _platformMiniPauseElapsed = -1;
+        }
+
         IsDragging = true;
         ManualVisual = null;
-        Action = "drag";
+        if (!MusicPlaying)
+            Action = "drag";
         _hasTarget = false;
         IsFalling = false;
         FallSpeed = 0;
@@ -411,6 +436,12 @@ public sealed class CompanionController
         ManualVisual = null;
         ClampToMonitors(monitors, dpiScale);
 
+        if (MusicPlaying)
+        {
+            MarkDirty();
+            return;
+        }
+
         if (Mode == CompanionMode.B)
         {
             IsFalling = true;
@@ -427,31 +458,23 @@ public sealed class CompanionController
 
     public void HandleSingleClick(IReadOnlyList<MonitorBounds>? monitors = null, double dpiScale = 1.0)
     {
-        if (MusicPlaying || PlaybackPoseHeld)
+        // While music is actively playing in Music mode, single-click only plays click feedback (Boing)
+        // and keeps Music mode — double-click is required to switch to Platform mode.
+        if (MusicPlaying)
+            return;
+
+        // While paused in Music mode (5-minute hold), single-click dismisses the pause hold back to Roam.
+        if (PlaybackPoseHeld)
         {
             if (monitors is not null)
-                DismissMusicMode(monitors, dpiScale);
+                DismissMusicMode(monitors, dpiScale, explicitTargetMode: CompanionMode.A);
             else
             {
-                if (_smtcIsPlaying) _musicDismissedWhilePlaying = true;
-                MusicPlaying = false;
                 PlaybackPoseHeld = false;
                 _pausedElapsed = -1;
-                if (_modeBeforeMusic.HasValue)
-                {
-                    Mode = _modeBeforeMusic.Value;
-                    _modeBeforeMusic = null;
-                }
-                if (Mode == CompanionMode.B)
-                {
-                    IsFalling = true;
-                    FallSpeed = 0;
-                    _landedHwnd = 0;
-                }
-                else
-                {
-                    SetIdle(change: true);
-                }
+                _modeBeforeMusic = null;
+                Mode = CompanionMode.A;
+                SetIdle(change: true);
                 MarkDirty();
             }
             return;
@@ -460,6 +483,14 @@ public sealed class CompanionController
         ManualVisual = null;
         if (Mode == CompanionMode.B)
         {
+            // When paused in Platform mode, clicking hides the mini player immediately;
+            // when actively playing, clicking only switches the screen sprite and keeps the mini player visible.
+            if (!_smtcIsPlaying && _platformMiniPlayerHeld)
+            {
+                _platformMiniPlayerHeld = false;
+                _platformMiniPauseElapsed = -1;
+            }
+
             bool wasResting = !IsFalling && !IsDragging;
             double oldFootY = Y + FootOffsetPx(dpiScale);
             ChangeScreen();
@@ -477,11 +508,17 @@ public sealed class CompanionController
 
     public void HandleDoubleClick(IReadOnlyList<MonitorBounds> monitors, double dpiScale)
     {
+        // From Music mode, double-click switches cleanly to Platform mode (showing mini player if playing).
         if (MusicPlaying || PlaybackPoseHeld)
         {
-            var baseMode = _modeBeforeMusic ?? Mode;
-            var toggled = baseMode == CompanionMode.A ? CompanionMode.B : CompanionMode.A;
-            DismissMusicMode(monitors, dpiScale, explicitTargetMode: toggled);
+            DismissMusicMode(monitors, dpiScale, explicitTargetMode: CompanionMode.B);
+            return;
+        }
+
+        // In Platform mode while music is actively playing, double-click expands into full Music mode.
+        if (Mode == CompanionMode.B && _smtcIsPlaying)
+        {
+            EnterMusicMode(monitors, dpiScale);
             return;
         }
 
@@ -517,9 +554,33 @@ public sealed class CompanionController
         bool wasSmtcPlaying = _smtcIsPlaying;
         _smtcIsPlaying = isMusicPlaying;
 
-        // User actions always take priority: never hijack Platform mode or an active drag
+        // User actions always take priority: never hijack Platform mode or an active drag into full Music mode
         if ((Mode == CompanionMode.B || IsDragging) && !MusicPlaying && !PlaybackPoseHeld)
         {
+            if (Mode == CompanionMode.B)
+            {
+                if (isMusicPlaying)
+                {
+                    _platformMiniPlayerHeld = false;
+                    _platformMiniPauseElapsed = -1;
+                }
+                else if (wasSmtcPlaying)
+                {
+                    // Music paused while in Platform mode:
+                    // if currently dragging, hide immediately; otherwise hold for 5 minutes until click/drag.
+                    if (IsDragging)
+                    {
+                        _platformMiniPlayerHeld = false;
+                        _platformMiniPauseElapsed = -1;
+                    }
+                    else
+                    {
+                        _platformMiniPlayerHeld = true;
+                        _platformMiniPauseElapsed = 0.0;
+                    }
+                }
+            }
+
             if (!isMusicPlaying) _musicDismissedWhilePlaying = false;
             return;
         }
@@ -557,8 +618,19 @@ public sealed class CompanionController
         }
         else
         {
-            _pausedElapsed = 0;
-            PlaybackPoseHeld = true;
+            if (IsDragging)
+            {
+                _pausedElapsed = -1;
+                PlaybackPoseHeld = false;
+                _modeBeforeMusic = null;
+                Mode = CompanionMode.A;
+                Action = "drag";
+            }
+            else
+            {
+                _pausedElapsed = 0;
+                PlaybackPoseHeld = true;
+            }
             MarkDirty();
         }
     }
@@ -589,6 +661,17 @@ public sealed class CompanionController
                     SetIdle(change: true);
                     MarkDirty();
                 }
+            }
+        }
+
+        // 5-minute pause hold timeout for Platform mini music player
+        if (_platformMiniPlayerHeld && !_smtcIsPlaying && _platformMiniPauseElapsed >= 0)
+        {
+            _platformMiniPauseElapsed += dt;
+            if (_platformMiniPauseElapsed >= PauseReturnSeconds)
+            {
+                _platformMiniPlayerHeld = false;
+                _platformMiniPauseElapsed = -1;
             }
         }
 

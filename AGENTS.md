@@ -24,8 +24,8 @@
 
 1. **유저 액션 최우선 원칙**
    - 언제나 유저의 직접 조작(클릭, 드래그, 우클릭 메뉴 선택)이 자동 상태 전환(SMTC 음악 감지 등)보다 최우선이다.
-   - **Platform** 모드 중에는 음악이 시작되어도 자동으로 **Music** 모드로 전환하지 않는다(우클릭 `♪ MUSIC` 등 유저 명시 선택 시에만 진입).
-   - 음악 재생 중 유저가 클릭·드래그하거나 **Roam / Platform**으로 전환하면 즉시 재생 모드를 해제하며, 같은 곡이 계속 재생 중이어도 자동으로 다시 뮤직 모드로 덮어쓰지 않는다.
+   - **Platform** 모드 중에는 음악이 시작되어도 자동으로 **Music** 모드로 전환하지 않고 상단에 가로형 미니 플레이어(`PlatformMiniPlayerWindow`)만 노출한다(더블클릭 또는 우클릭 `♪ MUSIC` 등 유저 명시 선택 시에만 풀 Music 모드 진입).
+   - 재생 중인 **Music** 모드에서 좌클릭은 1회 탄성 애니메이션만 재생하고 모드를 유지하며, **드래그**해도 음악 모드와 말풍선을 유지한 채 이동한다. **더블클릭** 시 **Platform** 모드로 전환(미니 플레이어 유지)하고, 메뉴에서 **Roam / Platform**을 선택하거나 일시정지 홀드 상태에서 클릭·드래그하면 즉시 재생 모드를 해제하며 같은 곡이 계속 재생 중이어도 자동으로 다시 뮤직 모드로 덮어쓰지 않는다.
    - 드래그 도중에는 자동 이벤트가 드래그를 중단시키지 않는다.
 2. **표현 및 모드 규칙**
    - UI·트레이·문서에서 `"Mode A"` / `"Mode B"` 표기를 사용하지 않고 **`ROAM` / `PLATFORM` / `MUSIC`**으로 통일한다.
@@ -44,23 +44,30 @@
 ## 3. 프로젝트 구조 및 내부 배포 서버
 
 - `src/AemeathCompanion/`: .NET 10 WPF 데스크탑 컴패니언 앱 (`net10.0-windows10.0.19041.0`)
-  - `Native/`: Win32/DWM 최상단·창 플랫폼 스캐너, WASAPI Loopback FFT, `HKCU\...\Run` 자동 시작
+  - `Native/`: Win32/DWM 최상단·창 플랫폼 스캐너, WASAPI Loopback FFT, `HKCU\...\Run` 자동 시작, 로컬 개발 전용 종료 제어(`DevLifecycleControl`, `#if DEBUG` + 로컬 저장소 `bin/` 경로 이중 가드)
   - `Media/`: WinRT SMTC 구독 및 음악 전용 세션 필터(`MusicSessionFilter`)
   - `Engine/`: GIF 프레임 디코더, 상태 머신, 1회 클릭 탄성 애니메이터(`BoingAnimator`)
-  - `UI/`: 도트 말풍선(`MusicBubbleControl`), 우클릭 컨트롤 메뉴, 트레이 아이콘
+  - `UI/`: 도트 말풍선(`MusicBubbleControl`), Platform 가로형 미니 플레이어(`PlatformMiniPlayerControl`), 우클릭 컨트롤 메뉴, 트레이 아이콘
   - `Update/`: 내부 배포 서버 버전 조회 및 SHA-256 검증 자동 업데이터(`AppUpdateService`)
 - `server/release-server.mjs`: LAN 배포 포털 및 버전 API (기본 `http://172.21.10.15:17515/`)
   - Lightweight 태그(`objecttype !== 'tag'`)는 커밋 메시지를 노출하지 않고 릴리즈 노트를 `"-"`로 표시한다.
   - SSE(`/api/events`) + 웹훅(`POST /api/webhook/refresh`) + 클라이언트 3초 폴백으로 새 태그/패키지 감지 시 자동 새로고침한다.
 - `scripts/publish-release.ps1`: 버전 패키징 및 태그 생성 스크립트 (`releases/`는 `.gitignore` 대상)
+- `scripts/dev-control.ps1`: 로컬 개발용 실행 중 앱 종료 / 빌드 / 재실행 요청 스크립트 (`-Action Status|Stop|Build|Start|RequestStart|Restart`)
+- `scripts/dev-watch.ps1`: 사용자 데스크탑 터미널(`WinSta0\Default`)에서 1회 실행해 두는 로컬 개발 런처 워처 (`.dev-control/start.signal` 수신 시 최신 Debug 앱을 실제 사용자 데스크탑에 자동 실행)
 
 ---
 
-## 4. 검증 절차
+## 4. 검증 및 로컬 개발 실행 절차
 
-- C# 코드 수정 후 반드시 빌드(경고 0개 / 오류 0개) 및 단위 테스트 전체 통과를 확인한다:
-  ```powershell
-  dotnet build --no-restore tests/AemeathCompanion.Tests/AemeathCompanion.Tests.csproj
-  .\tests\AemeathCompanion.Tests\bin\Debug\net10.0-windows10.0.19041.0\AemeathCompanion.Tests.exe
-  ```
+- C# 앱 코드(`src/AemeathCompanion/`, `Assets/`) 수정 시:
+  1. 실행 중인 로컬 Debug 앱이 있으면 `.\scripts\dev-control.ps1 -Action Stop`으로 정상 종료한다.
+  2. 반드시 빌드(경고 0개 / 오류 0개) 및 단위 테스트 전체 통과를 확인한다:
+     ```powershell
+     dotnet build --no-restore tests/AemeathCompanion.Tests/AemeathCompanion.Tests.csproj
+     .\tests\AemeathCompanion.Tests\bin\Debug\net10.0-windows10.0.19041.0\AemeathCompanion.Tests.exe
+     ```
+  3. **작업이 끝나면 항상 최신 Debug 앱이 사용자 데스크탑에 켜져 있는 상태로 마무리한다**:
+     - `.dev-control/watcher.json`이 존재하면 `.\scripts\dev-control.ps1 -Action RequestStart`로 데스크탑 워처(`dev-watch.ps1`)를 통해 실제 화면에 자동 재실행한다.
+     - 에이전트 터미널(`exebox-*` 숨겨진 데스크탑)에서 직접 `AemeathCompanion.exe`를 띄우지 않는다(숨겨진 데스크탑에서 단일 인스턴스 뮤텍스를 선점해 사용자 화면 실행을 막기 때문). 워처가 꺼져 있다면 종료·빌드·테스트 완료 후 사용자에게 실행 안내한다.
 - `server/release-server.mjs` 수정 시 `/api/version`, `/api/releases`, `/api/events`, `POST /api/webhook/refresh`, `/` HTML 렌더링 동작을 검증한다.

@@ -200,18 +200,85 @@ void Assert(bool condition, string name)
     var ctrl = new CompanionController(new Random(7));
     ctrl.InitializeFromState(new CompanionPersistedState { Mode = "B", X = 500, Y = 120, SizeMultiplier = 1.0 }, monitors, 1.0);
 
-    // Requirement: Platform mode must NOT auto-switch to music mode when music starts
+    // Requirement: Platform mode must NOT auto-switch to music mode when music starts,
+    // and instead exposes the compact Platform mini player
     ctrl.UpdateMusicState(true, monitors, 1.0);
-    Assert(ctrl.Mode == CompanionMode.B && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble,
-        "Platform mode blocks automatic music mode transition");
+    Assert(ctrl.Mode == CompanionMode.B && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.ShouldShowPlatformMiniPlayer,
+        "Platform mode shows compact mini player (without switching to full Music mode) when music plays");
 
-    // Switching Platform -> Roam while music is already playing prioritizes Roam over Music mode
+    // Playing in Platform mode: dragging & clicking keep mini player visible
+    ctrl.BeginDrag(monitors, 1.0);
+    Assert(ctrl.ShouldShowPlatformMiniPlayer, "Platform mini player stays visible while dragging during active playback");
+    ctrl.EndDrag(monitors, 1.0);
+
+    string beforeScreen = ctrl.ScreenName;
+    ctrl.HandleSingleClick(monitors, 1.0);
+    Assert(ctrl.ScreenName != beforeScreen && ctrl.ShouldShowPlatformMiniPlayer,
+        "Platform single-click changes screen sprite and keeps mini player visible while playing");
+
+    // Paused in Platform mode: mini player stays held, then hides immediately on drag or click
+    ctrl.UpdateMusicState(false, monitors, 1.0);
+    Assert(ctrl.ShouldShowPlatformMiniPlayer && ctrl.PlatformMiniPlayerHeld,
+        "Pausing music in Platform mode holds mini player");
+
+    ctrl.BeginDrag(monitors, 1.0);
+    Assert(!ctrl.ShouldShowPlatformMiniPlayer, "Dragging while paused immediately hides Platform mini player");
+    ctrl.EndDrag(monitors, 1.0);
+
+    // Paused in Platform mode: clicking also hides mini player immediately
+    ctrl.UpdateMusicState(true, monitors, 1.0);
+    ctrl.UpdateMusicState(false, monitors, 1.0);
+    Assert(ctrl.ShouldShowPlatformMiniPlayer, "Mini player re-held after pause");
+    ctrl.HandleSingleClick(monitors, 1.0);
+    Assert(!ctrl.ShouldShowPlatformMiniPlayer, "Clicking while paused immediately hides Platform mini player");
+
+    // Paused in Platform mode: auto-hides after 5 minutes
+    ctrl.UpdateMusicState(true, monitors, 1.0);
+    ctrl.UpdateMusicState(false, monitors, 1.0);
+    for (int i = 0; i < 6005; i++)
+        ctrl.Tick(0.05, monitors, [floorPlat], null, 1.0);
+    Assert(!ctrl.ShouldShowPlatformMiniPlayer, "Platform mini player auto-hides after 5 minutes paused");
+
+    // Switching Roam -> Platform while music is actively playing brings up the Platform mini player immediately
+    ctrl.UpdateMusicState(true, monitors, 1.0);
     ctrl.SetMode(CompanionMode.A, monitors, 1.0);
     ctrl.UpdateMusicState(true, monitors, 1.0);
-    Assert(ctrl.Mode == CompanionMode.A && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble,
-        "Switching Platform -> Roam while music plays stays in Roam (does not hijack into Music mode)");
+    Assert(ctrl.Mode == CompanionMode.A && !ctrl.MusicPlaying && !ctrl.ShouldShowBubble && !ctrl.ShouldShowPlatformMiniPlayer,
+        "Switching Platform -> Roam while music plays stays in Roam (hides mini player and does not hijack into Music mode)");
+
+    ctrl.SetMode(CompanionMode.B, monitors, 1.0);
+    Assert(ctrl.Mode == CompanionMode.B && ctrl.ShouldShowPlatformMiniPlayer,
+        "Switching Roam -> Platform while music plays immediately shows Platform mini player");
+
+    // Double-clicking in Platform mode while music is actively playing enters full Music mode
+    ctrl.HandleDoubleClick(monitors, 1.0);
+    Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble && !ctrl.ShouldShowPlatformMiniPlayer,
+        "Double-clicking in Platform mode while music plays switches into full Music mode");
+
+    // Single-clicking in active Music mode must NOT switch to Platform mode
+    ctrl.HandleSingleClick(monitors, 1.0);
+    Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble && ctrl.Mode == CompanionMode.A,
+        "Single-clicking in active Music mode stays in Music mode (does not jump to Platform)");
+
+    // Double-clicking in Music mode switches cleanly to Platform mode (with mini player active)
+    ctrl.HandleDoubleClick(monitors, 1.0);
+    Assert(!ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.Mode == CompanionMode.B && ctrl.ShouldShowPlatformMiniPlayer,
+        "Double-clicking in Music mode switches to Platform mode with mini player");
+
+    // Placement test: default above head; falls back to right/left side when monitor top margin is tight
+    var workRect = monitor.WorkRect;
+    var abovePlace = AemeathCompanion.UI.PlatformMiniPlayerWindow.ComputePlacement(960, 500, 100, 100, 64, workRect, 1.0);
+    Assert(abovePlace.TailEdge == AemeathCompanion.UI.MiniPlayerTailEdge.Bottom,
+        "Mini player places above head with bottom tail when top room is available");
+    var rightPlace = AemeathCompanion.UI.PlatformMiniPlayerWindow.ComputePlacement(180, 90, 100, 100, 30, workRect, 1.0);
+    Assert(rightPlace.TailEdge == AemeathCompanion.UI.MiniPlayerTailEdge.Left,
+        "Mini player falls back to right side (left tail) when near top-left edge");
+    var leftPlace = AemeathCompanion.UI.PlatformMiniPlayerWindow.ComputePlacement(1800, 90, 100, 100, 30, workRect, 1.0);
+    Assert(leftPlace.TailEdge == AemeathCompanion.UI.MiniPlayerTailEdge.Right,
+        "Mini player falls back to left side (right tail) when near top-right edge");
 
     // Active drag in Roam must not be interrupted when music starts playing
+    ctrl.SetMode(CompanionMode.A, monitors, 1.0);
     ctrl.UpdateMusicState(false, monitors, 1.0);
     ctrl.BeginDrag(monitors, 1.0);
     ctrl.UpdateMusicState(true, monitors, 1.0);
@@ -230,10 +297,13 @@ void Assert(bool condition, string name)
     Assert(ctrl.Y >= 100 + CompanionController.BubbleHeightDip,
         "Entering music mode clamps Y downward to reserve space for speech bubble");
 
-    // Clicking during music mode immediately stops music mode & restores prior Platform mode
+    // Single-clicking during active Music mode keeps Music mode; double-clicking switches to Platform
     ctrl.HandleSingleClick(monitors, 1.0);
-    Assert(!ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.Mode == CompanionMode.B && ctrl.ActiveSpriteName != "aemeath",
-        "Clicking during music mode exits music mode and restores prior Platform mode");
+    Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble,
+        "Single-click during active Music mode does not exit to Platform");
+    ctrl.HandleDoubleClick(monitors, 1.0);
+    Assert(!ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.Mode == CompanionMode.B && ctrl.ShouldShowPlatformMiniPlayer,
+        "Double-click during Music mode switches to Platform mode with mini player");
 
     // Switch to Roam mode -> auto music transition works normally
     ctrl.SetMode(CompanionMode.A, monitors, 1.0);
@@ -242,10 +312,10 @@ void Assert(bool condition, string name)
     Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble,
         "Roam mode automatically enters music mode when music starts");
 
-    // Dismissing in Roam keeps staying out while SMTC keeps playing continuously
-    ctrl.HandleSingleClick(monitors, 1.0);
+    // Dismissing in Roam via Roam menu selection stays out while SMTC keeps playing continuously
+    ctrl.SetMode(CompanionMode.A, monitors, 1.0);
     Assert(!ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.Mode == CompanionMode.A,
-        "Clicking during music mode in Roam exits music mode");
+        "Selecting Roam during music mode exits music mode");
     ctrl.UpdateMusicState(true, monitors, 1.0);
     Assert(!ctrl.MusicPlaying && !ctrl.ShouldShowBubble,
         "Continuous SMTC polling does not re-trigger dismissed music mode");
@@ -257,10 +327,33 @@ void Assert(bool condition, string name)
         "Music mode re-activates in Roam after playback stops and restarts");
 
     // Dragging during music mode immediately exits music mode (Roam -> drag.gif)
+    // Dragging during active Music mode (even when entered from Platform) stays in Music mode
+    ctrl.SetMode(CompanionMode.B, monitors, 1.0);
+    ctrl.EnterMusicMode(monitors, 1.0);
     ctrl.BeginDrag(monitors, 1.0);
-    Assert(!ctrl.MusicPlaying && !ctrl.ShouldShowBubble && ctrl.IsDragging && ctrl.ActiveSpriteName == "drag",
-        "Dragging during music mode (from Roam) exits music mode and uses drag sprite");
+    ctrl.UpdateDrag(900, 620, monitors, 1.0);
+    Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble && ctrl.IsDragging && ctrl.ActiveSpriteName == "aemeath" && Math.Abs(ctrl.X - 900) < 0.1,
+        "Dragging during active Music mode (entered from Platform) stays in Music mode with bubble");
     ctrl.EndDrag(monitors, 1.0);
+    Assert(ctrl.MusicPlaying && ctrl.ShouldShowBubble && !ctrl.IsDragging && ctrl.ActiveSpriteName == "aemeath" && ctrl.Mode == CompanionMode.A,
+        "Dropping after drag in active Music mode keeps Music mode (does not switch to Platform)");
+
+    // Pausing music mid-drag in Music mode hides bubble immediately and switches to drag sprite
+    ctrl.BeginDrag(monitors, 1.0);
+    ctrl.UpdateMusicState(false, monitors, 1.0);
+    Assert(!ctrl.MusicPlaying && !ctrl.PlaybackPoseHeld && !ctrl.ShouldShowBubble && ctrl.IsDragging && ctrl.ActiveSpriteName == "drag",
+        "Pausing music while dragging in Music mode immediately hides bubble and shows drag sprite");
+    ctrl.EndDrag(monitors, 1.0);
+
+    // Dragging during paused Music mode (5-minute hold) immediately dismisses hold to Roam
+    ctrl.UpdateMusicState(true, monitors, 1.0);
+    ctrl.UpdateMusicState(false, monitors, 1.0);
+    Assert(ctrl.PlaybackPoseHeld && ctrl.ShouldShowBubble, "Paused Music mode holds speech bubble before drag");
+    ctrl.BeginDrag(monitors, 1.0);
+    Assert(!ctrl.MusicPlaying && !ctrl.PlaybackPoseHeld && !ctrl.ShouldShowBubble && ctrl.IsDragging && ctrl.Mode == CompanionMode.A && ctrl.ActiveSpriteName == "drag",
+        "Dragging during paused Music mode immediately dismisses pause hold into Roam drag");
+    ctrl.EndDrag(monitors, 1.0);
+    ctrl.UpdateMusicState(true, monitors, 1.0);
 
     // Dragging during Platform mode keeps Platform screen sprite (not drag.gif)
     ctrl.SetMode(CompanionMode.B, monitors, 1.0);
@@ -321,7 +414,7 @@ void Assert(bool condition, string name)
     Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
-    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.4", "Assembly version matches project Version (0.0.4)");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.5", "Assembly version matches project Version (0.0.5)");
 
     // AutoStartService formatting & parsing
     string formatted = AutoStartService.FormatRunCommand(@"C:\Program Files\Aemeath\AemeathCompanion.exe");
@@ -428,6 +521,164 @@ if (args.Length >= 2 && args[0] == "--render-preview")
         t.Start();
         t.Join();
         Assert(uiErr is null, $"Preview render succeeded ({uiErr?.Message ?? "OK"})");
+}
+
+if (args.Length >= 2 && args[0] == "--render-mini-preview")
+{
+    string spriteDir = Path.Combine(AppContext.BaseDirectory, "Assets", "Sprites");
+    var bank = new GifSpriteBank();
+    bank.LoadFromDirectory(spriteDir);
+    string outPath = args[1];
+    Exception? uiErr = null;
+    var t = new Thread(() =>
+    {
+        try
+        {
+            var mini = new AemeathCompanion.UI.PlatformMiniPlayerControl();
+            mini.ApplySnapshot(new MediaSnapshot
+            {
+                HasMusicSession = true,
+                IsMusicPlaying = true,
+                CanPlayPause = true,
+                CanSkipPrevious = true,
+                CanSkipNext = true,
+                Title = "Aemeath — Digital Ghost (Pixel Remix)",
+                Artist = "Kuro Games · Solaris Sound Team",
+                SourceApp = "Spotify",
+                Position = TimeSpan.FromSeconds(94),
+                Duration = TimeSpan.FromSeconds(218),
+                AlbumArt = null,
+                AlbumTint = System.Windows.Media.Color.FromRgb(0xF0, 0xA0, 0xB8)
+            });
+            float[] bands = [0.45f, 0.72f, 0.88f, 0.96f, 0.78f, 0.62f, 0.84f, 0.91f, 0.70f, 0.55f, 0.68f, 0.80f, 0.64f, 0.50f, 0.58f, 0.74f, 0.62f, 0.48f, 0.42f, 0.52f, 0.38f, 0.30f, 0.24f, 0.18f];
+            float[] peaks = [0.60f, 0.85f, 0.98f, 1.00f, 0.90f, 0.75f, 0.92f, 0.96f, 0.82f, 0.68f, 0.78f, 0.88f, 0.76f, 0.62f, 0.70f, 0.84f, 0.72f, 0.58f, 0.52f, 0.60f, 0.48f, 0.40f, 0.32f, 0.24f];
+            mini.ApplyPreviewState(AemeathCompanion.UI.MiniPlayerTailEdge.Bottom, 162, bands, peaks);
+            mini.Measure(new System.Windows.Size(324, 66));
+            mini.Arrange(new System.Windows.Rect(0, 0, 324, 66));
+
+            if (mini.HitTestTransportButton(new System.Windows.Point(240, 28)) != AemeathCompanion.UI.MediaTransportButton.Previous ||
+                mini.HitTestTransportButton(new System.Windows.Point(267, 28)) != AemeathCompanion.UI.MediaTransportButton.PlayPause ||
+                mini.HitTestTransportButton(new System.Windows.Point(293, 28)) != AemeathCompanion.UI.MediaTransportButton.Next ||
+                mini.HitTestTransportButton(new System.Windows.Point(100, 28)) != AemeathCompanion.UI.MediaTransportButton.None)
+            {
+                throw new InvalidOperationException("Mini player hit-test coordinates mismatch");
+            }
+
+            var screen1 = bank.Get("screen1").Frames[0].Bitmap;
+            var screen8 = bank.Get("screen8").Frames[0].Bitmap;
+            var dv = new System.Windows.Media.DrawingVisual();
+            using (var dc = dv.RenderOpen())
+            {
+                dc.DrawRectangle(new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0xEA, 0xEC, 0xF2)), null, new System.Windows.Rect(0, 0, 190, 500));
+                dc.DrawRectangle(new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x16, 0x18, 0x22)), null, new System.Windows.Rect(190, 0, 190, 500));
+
+                // Top demo: Mini player above screen1 perched on a mock window bar
+                var vb = new System.Windows.Media.VisualBrush(mini) { Stretch = System.Windows.Media.Stretch.None };
+                dc.DrawRectangle(vb, null, new System.Windows.Rect(28, 16, 324, 66));
+                dc.DrawRectangle(new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x31, 0x42)), null, new System.Windows.Rect(40, 212, 300, 24));
+                dc.DrawImage(screen1, new System.Windows.Rect(90, 16, 200, 200));
+
+                // Bottom demo: Mini player above screen8 seal perched on a mock window bar
+                dc.DrawRectangle(vb, null, new System.Windows.Rect(28, 252, 324, 66));
+                dc.DrawRectangle(new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(0x2D, 0x31, 0x42)), null, new System.Windows.Rect(40, 470, 300, 24));
+                dc.DrawImage(screen8, new System.Windows.Rect(40, 285, 300, 200));
+            }
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(380, 500, 96, 96, System.Windows.Media.PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+            Directory.CreateDirectory(Path.GetDirectoryName(outPath)!);
+            using var fs = File.Create(outPath);
+            enc.Save(fs);
+        }
+        catch (Exception ex) { uiErr = ex; }
+    });
+    t.SetApartmentState(ApartmentState.STA);
+    t.Start();
+    t.Join();
+    Assert(uiErr is null, $"Mini player preview render succeeded ({uiErr?.Message ?? "OK"})");
+}
+
+// =========================================================================
+// 7. Local-Dev-Only Graceful Shutdown Control (DevLifecycleControl)
+// =========================================================================
+{
+    // Local repo bin directory is detected; deployed/non-bin directories are strictly rejected
+    bool foundRepo = DevLifecycleControl.TryFindLocalDevRepoRoot(AppContext.BaseDirectory, out string detectedRoot);
+    Assert(foundRepo && File.Exists(Path.Combine(detectedRoot, "src", "AemeathCompanion", "AemeathCompanion.csproj")),
+        "DevLifecycleControl recognizes local repo bin/ output directory");
+    Assert(!DevLifecycleControl.IsLocalDevDirectory(detectedRoot),
+        "DevLifecycleControl rejects repo root directly (not under bin/)");
+    Assert(!DevLifecycleControl.IsLocalDevDirectory(@"C:\Program Files\AemeathCompanion"),
+        "DevLifecycleControl rejects deployed Program Files directory");
+    Assert(!DevLifecycleControl.IsLocalDevDirectory(Path.GetTempPath()),
+        "DevLifecycleControl rejects arbitrary temp directory");
+
+    // Target PID matching
+    Assert(DevLifecycleControl.MatchesTargetPid("", 4242), "Empty shutdown signal matches any dev PID");
+    Assert(DevLifecycleControl.MatchesTargetPid("all", 4242), "'all' shutdown signal matches any dev PID");
+    Assert(DevLifecycleControl.MatchesTargetPid("shutdown 2026-11-25T00:00:00Z abc123", 4242), "Token shutdown signal matches any dev PID");
+    Assert(DevLifecycleControl.MatchesTargetPid("4242", 4242), "Exact PID shutdown signal matches target PID");
+    Assert(!DevLifecycleControl.MatchesTargetPid("9999", 4242), "Different PID shutdown signal does not match");
+    Assert(DevLifecycleControl.MatchesTargetPid("pid:4242", 4242), "Prefixed PID shutdown signal matches target PID");
+    Assert(!DevLifecycleControl.MatchesTargetPid("pid:9999", 4242), "Different prefixed PID does not match");
+
+    // File-based signal: clears stale pre-existing signal without triggering, then triggers once on fresh signal
+    string tempControlDir = Path.Combine(Path.GetTempPath(), $"aemeath-devctl-test-{Guid.NewGuid():N}");
+    try
+    {
+        Directory.CreateDirectory(tempControlDir);
+        string staleSignal = Path.Combine(tempControlDir, DevLifecycleControl.ShutdownSignalFileName);
+        File.WriteAllText(staleSignal, "stale-before-start");
+
+        using var fileTriggered = new ManualResetEventSlim(false);
+        int triggerCount = 0;
+
+        using (var ctl = new DevLifecycleControl(
+            tempControlDir,
+            onShutdownRequested: () =>
+            {
+                Interlocked.Increment(ref triggerCount);
+                fileTriggered.Set();
+            },
+            currentPid: 77771,
+            enableNamedEvent: false))
+        {
+            ctl.Start();
+            Assert(File.Exists(ctl.InstanceFilePath), "DevLifecycleControl writes instance.json on Start()");
+            Assert(!File.Exists(staleSignal), "DevLifecycleControl clears stale shutdown.signal on Start()");
+            Thread.Sleep(300);
+            Assert(triggerCount == 0, "Stale shutdown.signal before Start() never triggers shutdown");
+
+            File.WriteAllText(ctl.SignalFilePath, $"shutdown {Guid.NewGuid():N}");
+            bool fired = fileTriggered.Wait(2000);
+            Assert(fired && triggerCount == 1, "Fresh shutdown.signal triggers graceful shutdown callback exactly once");
+            Assert(!File.Exists(ctl.SignalFilePath), "Consumed shutdown.signal is deleted after triggering");
+        }
+
+        Assert(!File.Exists(Path.Combine(tempControlDir, DevLifecycleControl.InstanceFileName)),
+            "DevLifecycleControl deletes instance.json on Dispose()");
+
+        // Named event signal test (isolated event name)
+        string testEventName = $@"Local\AemeathCompanion.Test.Shutdown.{Guid.NewGuid():N}";
+        using var eventTriggered = new ManualResetEventSlim(false);
+        using (var ctl2 = new DevLifecycleControl(
+            tempControlDir,
+            onShutdownRequested: () => eventTriggered.Set(),
+            currentPid: 77772,
+            enableNamedEvent: true,
+            eventName: testEventName))
+        {
+            ctl2.Start();
+            using var sender = EventWaitHandle.OpenExisting(testEventName);
+            sender.Set();
+            Assert(eventTriggered.Wait(2000), "Named EventWaitHandle triggers graceful shutdown callback");
+        }
+    }
+    finally
+    {
+        try { if (Directory.Exists(tempControlDir)) Directory.Delete(tempControlDir, recursive: true); } catch { }
+    }
 }
 
 Console.WriteLine($"\nSummary: {passed} passed, {failed} failed.");

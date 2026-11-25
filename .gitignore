@@ -58,6 +58,7 @@ _ReSharper*/
 # Local Runtime State & Debug Artifacts
 # ==========================================
 state.json
+.dev-control/
 .env
 .env.*
 

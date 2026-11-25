@@ -21,6 +21,7 @@ public partial class CompanionWindow : Window
     private readonly SmtcMediaService _smtcService;
     private readonly AppUpdateService _updateService;
     private readonly MusicBubbleWindow _bubbleWindow;
+    private readonly PlatformMiniPlayerWindow _miniPlayerWindow;
     private readonly ActionMenuWindow _menuWindow;
     private readonly TrayIconService _trayService;
 
@@ -78,6 +79,7 @@ public partial class CompanionWindow : Window
         _updateService = new AppUpdateService(saved.UpdateServerUrl);
 
         _bubbleWindow = new MusicBubbleWindow();
+        _miniPlayerWindow = new PlatformMiniPlayerWindow();
         _menuWindow = new ActionMenuWindow();
         WireActionMenuEvents();
 
@@ -100,6 +102,10 @@ public partial class CompanionWindow : Window
         _bubbleWindow.PreviousClicked += () => _ = _smtcService.SkipPreviousAsync();
         _bubbleWindow.PlayPauseClicked += () => _ = _smtcService.TogglePlayPauseAsync();
         _bubbleWindow.NextClicked += () => _ = _smtcService.SkipNextAsync();
+
+        _miniPlayerWindow.PreviousClicked += () => _ = _smtcService.SkipPreviousAsync();
+        _miniPlayerWindow.PlayPauseClicked += () => _ = _smtcService.TogglePlayPauseAsync();
+        _miniPlayerWindow.NextClicked += () => _ = _smtcService.SkipNextAsync();
 
         SourceInitialized += OnSourceInitialized;
         Loaded += OnLoaded;
@@ -135,6 +141,13 @@ public partial class CompanionWindow : Window
 
     private async void OnLoaded(object sender, RoutedEventArgs e)
     {
+        // Guard against launchers/runners that spawn child processes with STARTUPINFO wShowWindow = SW_HIDE
+        if (_hwnd != 0 && !Win32Interop.IsWindowVisible(_hwnd))
+        {
+            Win32Interop.ShowWindow(_hwnd, Win32Interop.SW_SHOWNOACTIVATE);
+            MoveSelfPhysical(enforceTopmost: _controller.AlwaysOnTop);
+        }
+
         _lastTickSec = _clock.Elapsed.TotalSeconds;
         CompositionTarget.Rendering += OnCompositionRendering;
         _ = _updateService.CheckForUpdatesAsync();
@@ -152,7 +165,11 @@ public partial class CompanionWindow : Window
         if (_closing || !_controller.AlwaysOnTop) return;
         if (_hwnd != 0) Win32Interop.ForceTopmost(_hwnd);
         _bubbleWindow.ReinforceTopmost();
+        _miniPlayerWindow.ReinforceTopmost();
     }
+
+    private bool ShouldRunAudioVisualizer()
+        => _controller.MusicPlaying || (_controller.ShouldShowPlatformMiniPlayer && _smtcService.Current.IsMusicPlaying);
 
     private void OnSpriteRestartRequested(string spriteName)
     {
@@ -172,7 +189,8 @@ public partial class CompanionWindow : Window
             double dpiScale = CurrentDpiScale();
             _controller.UpdateMusicState(snapshot.IsMusicPlaying, _monitors, dpiScale);
             _bubbleWindow.ApplySnapshot(snapshot);
-            _audioAnalyzer.SetActive(_controller.MusicPlaying);
+            _miniPlayerWindow.ApplySnapshot(snapshot);
+            _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
 
             if (_menuWindow.IsVisible)
             {
@@ -257,7 +275,7 @@ public partial class CompanionWindow : Window
 
         NativePoint? cursor = Win32Interop.GetCursorPos(out var pt) ? pt : null;
         _controller.Tick(dt, _monitors, _platforms, cursor, dpiScale);
-        _audioAnalyzer.SetActive(_controller.MusicPlaying);
+        _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
 
         // Periodic topmost watchdog (Condition 2)
         _topmostWatchdogCooldown -= dt;
@@ -277,6 +295,19 @@ public partial class CompanionWindow : Window
             companionCenterX: _controller.X,
             companionCenterY: _controller.Y,
             companionHalfPx: _controller.HalfSizePx(dpiScale),
+            monitors: _monitors,
+            dt: dt,
+            audio: _audioAnalyzer,
+            enforceTopmost: enforceTop);
+
+        double spriteTopPadPx = _controller.ActiveMetrics.TopPadDip * _controller.SizeMultiplier * dpiScale;
+        _miniPlayerWindow.UpdateLayoutAndRender(
+            visible: _controller.ShouldShowPlatformMiniPlayer,
+            companionCenterX: _controller.X,
+            companionCenterY: _controller.Y,
+            companionHalfWpx: _controller.HalfWidthPx(dpiScale),
+            companionHalfHpx: _controller.HalfHeightPx(dpiScale),
+            spriteTopPadPx: spriteTopPadPx,
             monitors: _monitors,
             dt: dt,
             audio: _audioAnalyzer,
@@ -410,7 +441,7 @@ public partial class CompanionWindow : Window
                 _dragStarted = true;
                 _lastClickDownTimeSec = -10; // Cancel any pending double-click sequence
                 _controller.BeginDrag(_monitors, dpiScale);
-                _audioAnalyzer.SetActive(_controller.MusicPlaying);
+                _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
             }
         }
 
@@ -493,7 +524,7 @@ public partial class CompanionWindow : Window
             _controller.HandleSingleClick(_monitors, dpiScale);
         }
 
-        _audioAnalyzer.SetActive(_controller.MusicPlaying);
+        _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
         if (_controller.Mode == CompanionMode.B)
         {
             _rawWindows = _platformScanner.CaptureVisibleWindows(_monitors);
@@ -534,7 +565,7 @@ public partial class CompanionWindow : Window
         {
             double dpiScale = CurrentDpiScale();
             _controller.SetMode(mode, _monitors, dpiScale);
-            _audioAnalyzer.SetActive(_controller.MusicPlaying);
+            _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
             if (mode == CompanionMode.B)
             {
                 _rawWindows = _platformScanner.CaptureVisibleWindows(_monitors);
@@ -547,7 +578,7 @@ public partial class CompanionWindow : Window
             double dpiScale = CurrentDpiScale();
             _controller.EnterMusicMode(_monitors, dpiScale);
             _bubbleWindow.ApplySnapshot(_smtcService.Current);
-            _audioAnalyzer.SetActive(_controller.MusicPlaying);
+            _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
         };
 
         _menuWindow.VisualSelected += visual =>
@@ -574,6 +605,7 @@ public partial class CompanionWindow : Window
             _controller.AlwaysOnTop = !_controller.AlwaysOnTop;
             Topmost = _controller.AlwaysOnTop;
             _bubbleWindow.Topmost = _controller.AlwaysOnTop;
+            _miniPlayerWindow.Topmost = _controller.AlwaysOnTop;
             if (_controller.AlwaysOnTop) ReinforceTopmostAll();
             CompanionStateStorage.Save(_controller.ExportState());
             _menuWindow.SyncUi(_controller, _smtcService.Current);
@@ -633,7 +665,7 @@ public partial class CompanionWindow : Window
         _trayService.SwitchModeBRequested += () => Dispatcher.BeginInvoke(() =>
         {
             _controller.SetMode(CompanionMode.B, _monitors, CurrentDpiScale());
-            _audioAnalyzer.SetActive(_controller.MusicPlaying);
+            _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
             _rawWindows = _platformScanner.CaptureVisibleWindows(_monitors);
             _platforms = WindowPlatformScanner.ComputeVisiblePlatforms(_rawWindows, _monitors);
         });
@@ -641,7 +673,7 @@ public partial class CompanionWindow : Window
         {
             _controller.EnterMusicMode(_monitors, CurrentDpiScale());
             _bubbleWindow.ApplySnapshot(_smtcService.Current);
-            _audioAnalyzer.SetActive(_controller.MusicPlaying);
+            _audioAnalyzer.SetActive(ShouldRunAudioVisualizer());
         });
         _trayService.ResetPositionRequested += () => Dispatcher.BeginInvoke(ResetPositionToPrimaryCenter);
         _trayService.ResetScaleRequested += () => Dispatcher.BeginInvoke(() =>
@@ -655,6 +687,7 @@ public partial class CompanionWindow : Window
             _controller.AlwaysOnTop = !_controller.AlwaysOnTop;
             Topmost = _controller.AlwaysOnTop;
             _bubbleWindow.Topmost = _controller.AlwaysOnTop;
+            _miniPlayerWindow.Topmost = _controller.AlwaysOnTop;
             if (_controller.AlwaysOnTop) ReinforceTopmostAll();
             CompanionStateStorage.Save(_controller.ExportState());
         });
@@ -683,6 +716,8 @@ public partial class CompanionWindow : Window
         CompanionStateStorage.Save(_controller.ExportState());
     }
 
+    public void RequestShutdown() => ShutdownApp();
+
     private void ShutdownApp()
     {
         if (_closing) return;
@@ -710,5 +745,6 @@ public partial class CompanionWindow : Window
 
         try { _menuWindow.Close(); } catch { }
         try { _bubbleWindow.Close(); } catch { }
+        try { _miniPlayerWindow.Close(); } catch { }
     }
 }

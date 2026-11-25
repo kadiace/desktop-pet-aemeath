@@ -63,6 +63,7 @@ public static class Win32Interop
     public const int VK_LBUTTON = 0x01;
     public const int SM_CXDOUBLECLK = 36;
     public const int SM_CYDOUBLECLK = 37;
+    public const int SW_SHOWNOACTIVATE = 4;
 
     public delegate bool EnumWindowsProc(nint hWnd, nint lParam);
     public delegate bool MonitorEnumProc(nint hMonitor, nint hdcMonitor, ref NativeRect lprcMonitor, nint dwData);
@@ -86,6 +87,9 @@ public static class Win32Interop
 
     [DllImport("user32.dll", SetLastError = true)]
     public static extern bool SetWindowPos(nint hWnd, nint hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    public static extern bool ShowWindow(nint hWnd, int nCmdShow);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW", SetLastError = true)]
     private static extern nint GetWindowLongPtr64(nint hWnd, int nIndex);
