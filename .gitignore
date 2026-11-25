@@ -1,0 +1,72 @@
+# ==========================================
+# .NET / C# / WPF Build Outputs
+# ==========================================
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM64/
+publish/
+artifacts/
+*.pdb
+*.cache
+*.Build.CppClean.log
+*.tlog
+*.log
+*.tmp
+
+# ==========================================
+# NuGet & Packages
+# ==========================================
+packages/
+*.nupkg
+*.snupkg
+*.nuget.props
+*.nuget.targets
+project.lock.json
+project.fragment.lock.json
+
+# ==========================================
+# Test Results & Code Coverage
+# ==========================================
+TestResults/
+coverage/
+*.trx
+*.coverage
+*.coveragexml
+
+# ==========================================
+# Visual Studio / Rider / VS Code
+# ==========================================
+.vs/
+.idea/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+*.csproj.user
+*.DotSettings.user
+*.rsuser
+UpgradeLog*.htm
+_ReSharper*/
+
+# ==========================================
+# Local Runtime State & Debug Artifacts
+# ==========================================
+state.json
+.env
+.env.*
+
+# ==========================================
+# OS & Editor Temporary Files
+# ==========================================
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+*.bak
+*.swp
+*~
