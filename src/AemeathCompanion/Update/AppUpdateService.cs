@@ -73,7 +73,7 @@ public sealed class AppUpdateService : IDisposable
 
         _http = new HttpClient
         {
-            Timeout = TimeSpan.FromSeconds(5)
+            Timeout = TimeSpan.FromSeconds(3)
         };
     }
 
@@ -150,7 +150,7 @@ public sealed class AppUpdateService : IDisposable
             {
                 return PublishResult(new UpdateCheckResult(
                     CurrentVersion, null, null, false, false, null, null, null,
-                    $"서버 응답 오류 ({(int)resp.StatusCode})", Succeeded: false));
+                    $"불러오기 실패 ({(int)resp.StatusCode})", Succeeded: false));
             }
 
             string json = await resp.Content.ReadAsStringAsync(ct);
@@ -164,7 +164,7 @@ public sealed class AppUpdateService : IDisposable
             {
                 return PublishResult(new UpdateCheckResult(
                     CurrentVersion, null, null, false, false, null, null, null,
-                    "버전 정보 없음", Succeeded: false));
+                    "불러오기 실패", Succeeded: false));
             }
 
             bool newer = IsNewerVersion(CurrentVersion, latestVer);
@@ -186,13 +186,19 @@ public sealed class AppUpdateService : IDisposable
         {
             return PublishResult(new UpdateCheckResult(
                 CurrentVersion, null, null, false, false, null, null, null,
-                "서버 연결 시간 초과", Succeeded: false));
+                "연결 안됨", Succeeded: false));
+        }
+        catch (HttpRequestException)
+        {
+            return PublishResult(new UpdateCheckResult(
+                CurrentVersion, null, null, false, false, null, null, null,
+                "연결 안됨", Succeeded: false));
         }
         catch
         {
             return PublishResult(new UpdateCheckResult(
                 CurrentVersion, null, null, false, false, null, null, null,
-                "서버 미연결", Succeeded: false));
+                "불러오기 실패", Succeeded: false));
         }
         finally
         {

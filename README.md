@@ -1,4 +1,4 @@
-# Aemeath, Digital Ghost — Windows Desktop Companion
+# Aemeath, the Digital Ghost — Windows Desktop Companion
 
 도트 GIF 스프라이트 15종(`aemeath`, `drag`, `idle1~4`, `move`, `screen1~8`)과 Windows 네이티브 API(Win32/DWM, WinRT SMTC, WASAPI Loopback)로 동작하는 **.NET 10 WPF Windows 데스크탑 컴패니언 앱**입니다.
 

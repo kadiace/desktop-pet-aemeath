@@ -34,6 +34,8 @@ public sealed class ActionMenuWindow : Window
     private readonly Button _btnAutoStart;
     private readonly Button _btnCheckUpdate;
     private readonly Button _btnApplyUpdate;
+    private readonly Border _updateErrorBanner;
+    private readonly TextBlock _updateErrorText;
     private readonly Dictionary<string, Button> _poseButtons = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _suppressSlider;
@@ -385,6 +387,29 @@ public sealed class ActionMenuWindow : Window
         _btnApplyUpdate.Click += (_, _) => ApplyUpdateRequested?.Invoke();
         rootStack.Children.Add(_btnApplyUpdate);
 
+        _updateErrorText = new TextBlock
+        {
+            Text = "⚠ 업데이트 서버 연결 안됨",
+            FontFamily = PixelPalette.PretendardFamily,
+            FontWeight = FontWeights.Bold,
+            FontSize = 10,
+            Foreground = PixelPalette.BlushLightBrush,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        _updateErrorBanner = new Border
+        {
+            Background = PixelPalette.PanelPlumBrush,
+            BorderBrush = PixelPalette.BerryRoseBrush,
+            BorderThickness = new Thickness(1),
+            Padding = new Thickness(6, 4, 6, 4),
+            Margin = new Thickness(0, 5, 0, 0),
+            Visibility = Visibility.Collapsed,
+            SnapsToDevicePixels = true,
+            Child = _updateErrorText
+        };
+        rootStack.Children.Add(_updateErrorBanner);
+
         innerPanel.Child = rootStack;
         roseBorder.Child = innerPanel;
         blushBorder.Child = roseBorder;
@@ -512,6 +537,10 @@ public sealed class ActionMenuWindow : Window
     public void SyncUpdateUi(UpdateCheckResult info, bool isChecking = false, bool isUpdating = false, string? progressText = null)
     {
         string cur = $"v{info.CurrentVersion}";
+        bool isFailure = !isChecking && !isUpdating && !info.Succeeded &&
+                         !string.IsNullOrWhiteSpace(info.StatusText) &&
+                         !string.Equals(info.StatusText, "확인 전", StringComparison.Ordinal);
+
         if (isUpdating)
         {
             _versionText.Text = $"{cur} · {progressText ?? "업데이트 중..."}";
@@ -529,14 +558,17 @@ public sealed class ActionMenuWindow : Window
                 : $"{cur} · {info.StatusText}";
             _versionText.Foreground = info.IsUpdateAvailable
                 ? PixelPalette.GhostCyanBrush
-                : PixelPalette.LavenderBrush;
+                : isFailure
+                    ? PixelPalette.SakuraPinkBrush
+                    : PixelPalette.LavenderBrush;
         }
 
         _btnCheckUpdate.IsEnabled = !isChecking && !isUpdating;
         _btnCheckUpdate.Content = isChecking ? "확인 중" : "최신 확인";
 
         // Only expose the Update button when a newer version is available
-        var prevVisibility = _btnApplyUpdate.Visibility;
+        var prevBtnVis = _btnApplyUpdate.Visibility;
+        var prevErrVis = _updateErrorBanner.Visibility;
         if (info.IsUpdateAvailable)
         {
             _btnApplyUpdate.Visibility = Visibility.Visible;
@@ -545,14 +577,25 @@ public sealed class ActionMenuWindow : Window
             _btnApplyUpdate.Content = isUpdating
                 ? (progressText ?? "업데이트 중...")
                 : (info.HasDownload ? $"⬆ {tagLabel} 업데이트" : $"🌐 {tagLabel} 다운로드 페이지");
+            _updateErrorBanner.Visibility = Visibility.Collapsed;
         }
         else
         {
             _btnApplyUpdate.Visibility = Visibility.Collapsed;
+            if (isFailure)
+            {
+                _updateErrorText.Text = FormatUpdateErrorNotice(info.StatusText);
+                _updateErrorBanner.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                _updateErrorBanner.Visibility = Visibility.Collapsed;
+            }
         }
 
-        // If the update button newly appeared while menu is open near the bottom of the monitor, keep it inside work area
-        if (IsVisible && _hwnd != 0 && prevVisibility != _btnApplyUpdate.Visibility && _lastWorkRect.Height > 0)
+        // If the update button or error banner changed height while menu is open near monitor bottom, keep it inside work area
+        bool heightChanged = prevBtnVis != _btnApplyUpdate.Visibility || prevErrVis != _updateErrorBanner.Visibility;
+        if (IsVisible && _hwnd != 0 && heightChanged && _lastWorkRect.Height > 0)
         {
             UpdateLayout();
             double dpiScale = Win32Interop.GetWindowDpiScale(_hwnd);
@@ -565,6 +608,16 @@ public sealed class ActionMenuWindow : Window
                 Win32Interop.MoveWindowPhysical(_hwnd, (int)Math.Round(_lastLeftPx), (int)Math.Round(_lastTopPx), enforceTopmost: true);
             }
         }
+    }
+
+    public static string FormatUpdateErrorNotice(string? statusText)
+    {
+        if (string.IsNullOrWhiteSpace(statusText))
+            return "⚠ 업데이트 서버 연결 안됨";
+
+        return statusText.Contains("연결", StringComparison.Ordinal)
+            ? $"⚠ 업데이트 서버 {statusText}"
+            : $"⚠ 버전 정보 {statusText}";
     }
 
     public void UpdatePlaybackTime(AemeathCompanion.Media.MediaSnapshot media)

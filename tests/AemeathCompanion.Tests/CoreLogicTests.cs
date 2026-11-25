@@ -439,7 +439,20 @@ void Assert(bool condition, string name)
     Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
-    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.7", "Assembly version matches project Version (0.0.7)");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.8", "Assembly version matches project Version (0.0.8)");
+
+    // Unreachable update server surfaces clear disconnected/failure status
+    using (var offlineUpdater = new AppUpdateService("http://127.0.0.1:1"))
+    {
+        var offlineRes = offlineUpdater.CheckForUpdatesAsync().GetAwaiter().GetResult();
+        Assert(!offlineRes.Succeeded && !offlineRes.IsUpdateAvailable &&
+               (offlineRes.StatusText == "연결 안됨" || offlineRes.StatusText.Contains("불러오기 실패")),
+            $"Unreachable update server reports clear failure status ({offlineRes.StatusText})");
+    }
+    Assert(AemeathCompanion.UI.ActionMenuWindow.FormatUpdateErrorNotice("연결 안됨") == "⚠ 업데이트 서버 연결 안됨",
+        "ActionMenuWindow formats disconnected error banner clearly");
+    Assert(AemeathCompanion.UI.ActionMenuWindow.FormatUpdateErrorNotice("불러오기 실패 (502)") == "⚠ 버전 정보 불러오기 실패 (502)",
+        "ActionMenuWindow formats load failure banner clearly");
 
     // AutoStartService formatting & parsing
     string formatted = AutoStartService.FormatRunCommand(@"C:\Program Files\Aemeath\AemeathCompanion.exe");

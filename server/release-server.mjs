@@ -244,7 +244,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Aemeath, Digital Ghost — 내부 배포 포털</title>
+  <title>Aemeath, the Digital Ghost — 내부 배포 포털</title>
   <style>
     :root {
       --bg: #18111d;
@@ -495,7 +495,7 @@ function renderPortalHtml(releases, publicUrl, initialSignature) {
       <div class="header-top">
         <img class="mascot" src="/assets/mascot.gif" alt="Aemeath" />
         <div class="title-block">
-          <h1>✦ Aemeath, Digital Ghost</h1>
+          <h1>✦ Aemeath, the Digital Ghost</h1>
           <div class="sub">WINDOWS DESKTOP COMPANION // INTERNAL RELEASE PORTAL</div>
         </div>
       </div>

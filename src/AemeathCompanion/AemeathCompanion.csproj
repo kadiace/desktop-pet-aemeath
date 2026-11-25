@@ -14,7 +14,9 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <AssemblyName>AemeathCompanion</AssemblyName>
     <RootNamespace>AemeathCompanion</RootNamespace>
-    <Version>0.0.7</Version>
+    <Product>Aemeath, the Digital Ghost</Product>
+    <AssemblyTitle>Aemeath, the Digital Ghost</AssemblyTitle>
+    <Version>0.0.8</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 

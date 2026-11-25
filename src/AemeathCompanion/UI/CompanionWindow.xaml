@@ -1,7 +1,7 @@
 <Window x:Class="AemeathCompanion.UI.CompanionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Aemeath, Digital Ghost"
+        Title="Aemeath, the Digital Ghost"
         WindowStyle="None"
         AllowsTransparency="True"
         Background="Transparent"
