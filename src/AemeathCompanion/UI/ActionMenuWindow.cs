@@ -6,6 +6,7 @@ using System.Windows.Interop;
 using System.Windows.Media;
 using AemeathCompanion.Engine;
 using AemeathCompanion.Native;
+using AemeathCompanion.Update;
 
 namespace AemeathCompanion.UI;
 
@@ -21,6 +22,7 @@ public sealed class ActionMenuWindow : Window
     private readonly TextBlock _mediaArtistText;
     private readonly TextBlock _mediaTimeText;
     private readonly TextBlock _scaleLabel;
+    private readonly TextBlock _versionText;
     private readonly Slider _scaleSlider;
     private readonly Button _btnModeA;
     private readonly Button _btnModeB;
@@ -29,6 +31,8 @@ public sealed class ActionMenuWindow : Window
     private readonly Button _btnMediaPrev;
     private readonly Button _btnMediaPlayPause;
     private readonly Button _btnMediaNext;
+    private readonly Button _btnCheckUpdate;
+    private readonly Button _btnApplyUpdate;
     private readonly Dictionary<string, Button> _poseButtons = new(StringComparer.OrdinalIgnoreCase);
 
     private bool _suppressSlider;
@@ -43,6 +47,8 @@ public sealed class ActionMenuWindow : Window
     public event Action? MediaPreviousRequested;
     public event Action? MediaPlayPauseRequested;
     public event Action? MediaNextRequested;
+    public event Action? CheckUpdateRequested;
+    public event Action? ApplyUpdateRequested;
     public event Action? ExitRequested;
 
     public ActionMenuWindow()
@@ -311,6 +317,41 @@ public sealed class ActionMenuWindow : Window
 
         rootStack.Children.Add(footerGrid);
 
+        // Bottom version & update bar (Requirement: current version, check latest, conditional update button)
+        var updateDivider = MakeDivider();
+        updateDivider.Margin = new Thickness(0, 7, 0, 6);
+        rootStack.Children.Add(updateDivider);
+
+        var versionRow = new Grid();
+        versionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        versionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(6) });
+        versionRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+
+        _versionText = new TextBlock
+        {
+            Text = "v0.0.1",
+            FontFamily = PixelPalette.PretendardFamily,
+            FontWeight = FontWeights.Bold,
+            FontSize = 10,
+            Foreground = PixelPalette.LavenderBrush,
+            VerticalAlignment = VerticalAlignment.Center,
+            TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        versionRow.Children.Add(_versionText);
+
+        _btnCheckUpdate = CreatePixelButton("최신 확인", compact: true);
+        _btnCheckUpdate.Click += (_, _) => CheckUpdateRequested?.Invoke();
+        Grid.SetColumn(_btnCheckUpdate, 2);
+        versionRow.Children.Add(_btnCheckUpdate);
+        rootStack.Children.Add(versionRow);
+
+        _btnApplyUpdate = CreatePixelButton("⬆ 업데이트", compact: true);
+        _btnApplyUpdate.Margin = new Thickness(0, 5, 0, 0);
+        _btnApplyUpdate.Visibility = Visibility.Collapsed;
+        StyleToggleButton(_btnApplyUpdate, active: true);
+        _btnApplyUpdate.Click += (_, _) => ApplyUpdateRequested?.Invoke();
+        rootStack.Children.Add(_btnApplyUpdate);
+
         innerPanel.Child = rootStack;
         roseBorder.Child = innerPanel;
         blushBorder.Child = roseBorder;
@@ -340,9 +381,13 @@ public sealed class ActionMenuWindow : Window
         double companionHalfPx,
         IReadOnlyList<MonitorBounds> monitors,
         CompanionController controller,
-        AemeathCompanion.Media.MediaSnapshot media)
+        AemeathCompanion.Media.MediaSnapshot media,
+        UpdateCheckResult updateInfo,
+        bool isCheckingUpdate = false,
+        bool isUpdating = false)
     {
         SyncUi(controller, media);
+        SyncUpdateUi(updateInfo, isCheckingUpdate, isUpdating);
 
         if (!IsVisible) Show();
         UpdateLayout();
@@ -418,6 +463,48 @@ public sealed class ActionMenuWindow : Window
 
         _btnTopmost.Content = controller.AlwaysOnTop ? "TOP: ON" : "TOP: OFF";
         StyleToggleButton(_btnTopmost, controller.AlwaysOnTop);
+    }
+
+    public void SyncUpdateUi(UpdateCheckResult info, bool isChecking = false, bool isUpdating = false, string? progressText = null)
+    {
+        string cur = $"v{info.CurrentVersion}";
+        if (isUpdating)
+        {
+            _versionText.Text = $"{cur} · {progressText ?? "업데이트 중..."}";
+            _versionText.Foreground = PixelPalette.GhostCyanBrush;
+        }
+        else if (isChecking)
+        {
+            _versionText.Text = $"{cur} · 확인 중...";
+            _versionText.Foreground = PixelPalette.LavenderBrush;
+        }
+        else
+        {
+            _versionText.Text = string.IsNullOrWhiteSpace(info.StatusText)
+                ? cur
+                : $"{cur} · {info.StatusText}";
+            _versionText.Foreground = info.IsUpdateAvailable
+                ? PixelPalette.GhostCyanBrush
+                : PixelPalette.LavenderBrush;
+        }
+
+        _btnCheckUpdate.IsEnabled = !isChecking && !isUpdating;
+        _btnCheckUpdate.Content = isChecking ? "확인 중" : "최신 확인";
+
+        // Only expose the Update button when a newer version is available
+        if (info.IsUpdateAvailable)
+        {
+            _btnApplyUpdate.Visibility = Visibility.Visible;
+            _btnApplyUpdate.IsEnabled = !isUpdating;
+            string tagLabel = !string.IsNullOrWhiteSpace(info.LatestTag) ? info.LatestTag : $"v{info.LatestVersion}";
+            _btnApplyUpdate.Content = isUpdating
+                ? (progressText ?? "업데이트 중...")
+                : (info.HasDownload ? $"⬆ {tagLabel} 업데이트" : $"🌐 {tagLabel} 다운로드 페이지");
+        }
+        else
+        {
+            _btnApplyUpdate.Visibility = Visibility.Collapsed;
+        }
     }
 
     public void UpdatePlaybackTime(AemeathCompanion.Media.MediaSnapshot media)

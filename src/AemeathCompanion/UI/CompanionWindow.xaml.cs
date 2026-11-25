@@ -7,6 +7,7 @@ using System.Windows.Media;
 using AemeathCompanion.Engine;
 using AemeathCompanion.Media;
 using AemeathCompanion.Native;
+using AemeathCompanion.Update;
 
 namespace AemeathCompanion.UI;
 
@@ -17,6 +18,7 @@ public partial class CompanionWindow : Window
     private readonly WindowPlatformScanner _platformScanner = new();
     private readonly WasapiLoopbackAnalyzer _audioAnalyzer = new();
     private readonly SmtcMediaService _smtcService;
+    private readonly AppUpdateService _updateService;
     private readonly MusicBubbleWindow _bubbleWindow;
     private readonly ActionMenuWindow _menuWindow;
     private readonly TrayIconService _trayService;
@@ -69,10 +71,21 @@ public partial class CompanionWindow : Window
         var saved = CompanionStateStorage.Load();
         _controller.InitializeFromState(saved, _monitors, 1.0);
         _controller.SpriteRestartRequested += OnSpriteRestartRequested;
+        _updateService = new AppUpdateService(saved.UpdateServerUrl);
 
         _bubbleWindow = new MusicBubbleWindow();
         _menuWindow = new ActionMenuWindow();
         WireActionMenuEvents();
+
+        _updateService.UpdateStatusChanged += result =>
+        {
+            if (_closing) return;
+            Dispatcher.BeginInvoke(() =>
+            {
+                if (!_closing && _menuWindow.IsVisible)
+                    _menuWindow.SyncUpdateUi(result, _updateService.IsChecking, _updateService.IsUpdating);
+            });
+        };
 
         _trayService = new TrayIconService(spriteDir);
         WireTrayEvents();
@@ -120,6 +133,7 @@ public partial class CompanionWindow : Window
     {
         _lastTickSec = _clock.Elapsed.TotalSeconds;
         CompositionTarget.Rendering += OnCompositionRendering;
+        _ = _updateService.CheckForUpdatesAsync();
         await _smtcService.StartAsync();
     }
 
@@ -476,7 +490,10 @@ public partial class CompanionWindow : Window
             _controller.HalfWidthPx(dpiScale),
             _monitors,
             _controller,
-            _smtcService.Current);
+            _smtcService.Current,
+            _updateService.LatestResult,
+            _updateService.IsChecking,
+            _updateService.IsUpdating);
     }
 
     private void WireActionMenuEvents()
@@ -533,8 +550,45 @@ public partial class CompanionWindow : Window
         _menuWindow.MediaPreviousRequested += () => _ = _smtcService.SkipPreviousAsync();
         _menuWindow.MediaPlayPauseRequested += () => _ = _smtcService.TogglePlayPauseAsync();
         _menuWindow.MediaNextRequested += () => _ = _smtcService.SkipNextAsync();
+        _menuWindow.CheckUpdateRequested += OnCheckUpdateRequested;
+        _menuWindow.ApplyUpdateRequested += OnApplyUpdateRequested;
         _menuWindow.ResetPositionRequested += ResetPositionToPrimaryCenter;
         _menuWindow.ExitRequested += ShutdownApp;
+    }
+
+    private async void OnCheckUpdateRequested()
+    {
+        _menuWindow.SyncUpdateUi(_updateService.LatestResult, isChecking: true, isUpdating: _updateService.IsUpdating);
+        var result = await _updateService.CheckForUpdatesAsync();
+        if (!_closing && _menuWindow.IsVisible)
+            _menuWindow.SyncUpdateUi(result, isChecking: false, isUpdating: _updateService.IsUpdating);
+    }
+
+    private async void OnApplyUpdateRequested()
+    {
+        var latest = _updateService.LatestResult;
+        if (!latest.IsUpdateAvailable) return;
+
+        _menuWindow.SyncUpdateUi(latest, isChecking: false, isUpdating: true, progressText: "다운로드 준비 중...");
+        var (shouldShutdown, message) = await _updateService.DownloadAndApplyUpdateAsync(
+            latest,
+            pct => Dispatcher.BeginInvoke(() =>
+            {
+                if (!_closing && _menuWindow.IsVisible)
+                    _menuWindow.SyncUpdateUi(latest, isChecking: false, isUpdating: true, progressText: $"다운로드 {pct}%");
+            }));
+
+        if (shouldShutdown)
+        {
+            ShutdownApp();
+            return;
+        }
+
+        if (!_closing && _menuWindow.IsVisible)
+        {
+            var updated = latest with { StatusText = message };
+            _menuWindow.SyncUpdateUi(updated, isChecking: false, isUpdating: false);
+        }
     }
 
     private void WireTrayEvents()
@@ -604,6 +658,7 @@ public partial class CompanionWindow : Window
         }
 
         CompanionStateStorage.Save(_controller.ExportState());
+        _updateService.Dispose();
         _smtcService.Dispose();
         _audioAnalyzer.Dispose();
         _trayService.Dispose();

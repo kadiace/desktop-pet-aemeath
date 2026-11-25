@@ -2,6 +2,7 @@ using System.IO;
 using AemeathCompanion.Engine;
 using AemeathCompanion.Media;
 using AemeathCompanion.Native;
+using AemeathCompanion.Update;
 
 int passed = 0;
 int failed = 0;
@@ -309,9 +310,28 @@ void Assert(bool condition, string name)
     Assert(bank.Get("screen8").Frames.Count == 4 && bank.Get("screen8").PixelWidth == 300 && bank.Get("screen8").PixelHeight == 200,
         "screen8.gif decoded all 4 frames at 300x200 matching screen1-7 height");
     Assert(bank.Get("idle1").Frames.Count == 25, "idle1.gif decoded all 25 frames");
+}
 
-    if (args.Length >= 2 && args[0] == "--render-preview")
-    {
+// ============================================================
+// 6. Update Version Comparison Tests
+// ============================================================
+{
+    Assert(AppUpdateService.IsNewerVersion("0.0.1", "v0.0.2"), "SemVer detects patch update (0.0.1 -> v0.0.2)");
+    Assert(AppUpdateService.IsNewerVersion("0.1.9", "v0.10.0"), "SemVer compares minor numerically (0.1.9 -> v0.10.0)");
+    Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
+    Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
+    Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.1", "Assembly version matches project Version (0.0.1)");
+}
+
+// ============================================================
+// 7. Preview Render Hook (optional)
+// ============================================================
+if (args.Length >= 2 && args[0] == "--render-preview")
+{
+    string spriteDir = Path.Combine(AppContext.BaseDirectory, "Assets", "Sprites");
+    var bank = new GifSpriteBank();
+    bank.LoadFromDirectory(spriteDir);
         string outPath = args[1];
         Exception? uiErr = null;
         var t = new Thread(() =>
@@ -374,7 +394,6 @@ void Assert(bool condition, string name)
         t.Start();
         t.Join();
         Assert(uiErr is null, $"Preview render succeeded ({uiErr?.Message ?? "OK"})");
-    }
 }
 
 Console.WriteLine($"\nSummary: {passed} passed, {failed} failed.");

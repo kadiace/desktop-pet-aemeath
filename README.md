@@ -29,3 +29,33 @@ dotnet run -c Release --project src/AemeathCompanion/AemeathCompanion.csproj
 # 핵심 로직 단위 테스트 실행
 dotnet run --project tests/AemeathCompanion.Tests/AemeathCompanion.Tests.csproj
 ```
+
+## 내부 네트워크(LAN) 배포 및 업데이트 (`172.21.10.15:17515`)
+
+### 1. 배포 서버 실행
+```powershell
+# 기본 포트 17515로 배포 포털 및 버전 API 실행
+.\scripts\start-release-server.ps1
+
+# Windows 방화벽 포트 허용 (최초 1회, 관리자 PowerShell)
+New-NetFirewallRule -DisplayName "Aemeath Release Server" -Direction Inbound -Protocol TCP -LocalPort 17515 -Action Allow
+```
+
+- **다운로드 포털**: `http://172.21.10.15:17515/` (최상단 최신 버전 대형 다운로드 버튼 + 전체 Git 태그별 버전 목록/다운로드 링크)
+- **최신 버전 API**: `http://172.21.10.15:17515/api/version` (Git 태그 기준 최신 버전/다운로드 정보 JSON)
+- **전체 목록 API**: `http://172.21.10.15:17515/api/releases`
+- **패키지 다운로드**: `http://172.21.10.15:17515/download/latest` 또는 `/download/<tag>`
+
+### 2. 새 버전 태그 및 릴리즈 패키지 생성
+```powershell
+# 예: v0.1.0 태그 생성 + releases/AemeathCompanion-v0.1.0.zip 자동 패키징
+.\scripts\publish-release.ps1 -Version 0.1.0 -Notes "새 기능 및 버그 수정" -CreateTag
+
+# .NET 10 런타임 미설치 PC용 독립 실행 패키지(Self-Contained) 생성 시
+.\scripts\publish-release.ps1 -Version 0.1.0 -Notes "독립 실행 패키지" -CreateTag -SelfContained
+```
+
+### 3. 앱 내 자동 업데이트 확인
+- 앱 실행 시 및 우클릭 메뉴 최하단의 **`최신 확인`** 버튼 클릭 시 `http://172.21.10.15:17515/api/version`을 조회합니다.
+- 현재 버전보다 새로운 Git 태그가 존재할 때만 **`⬆ vX.Y.Z 업데이트`** 버튼이 노출되며, 클릭 시 패키지를 받아 무결성(SHA-256) 검증 후 자동으로 교체·재실행합니다.
+

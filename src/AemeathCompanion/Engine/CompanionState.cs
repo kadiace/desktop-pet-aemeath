@@ -12,6 +12,7 @@ public sealed class CompanionPersistedState
     public string? ManualVisual { get; set; }
     public string? ScreenName { get; set; }
     public bool AlwaysOnTop { get; set; } = true;
+    public string? UpdateServerUrl { get; set; }
 }
 
 public static class CompanionStateStorage

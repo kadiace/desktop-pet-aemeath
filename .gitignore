@@ -10,6 +10,7 @@ x86/
 ARM64/
 publish/
 artifacts/
+releases/
 *.pdb
 *.cache
 *.Build.CppClean.log

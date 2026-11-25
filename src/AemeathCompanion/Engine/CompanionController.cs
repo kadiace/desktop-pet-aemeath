@@ -69,6 +69,7 @@ public sealed class CompanionController
     public string? ManualVisual { get; private set; }
     public double SizeMultiplier { get; private set; } = 1.0;
     public bool AlwaysOnTop { get; set; } = true;
+    public string? UpdateServerUrl { get; private set; }
 
     public bool MusicPlaying { get; private set; }
     public bool PlaybackPoseHeld { get; private set; }
@@ -129,6 +130,7 @@ public sealed class CompanionController
         Mode = saved.Mode == "B" ? CompanionMode.B : CompanionMode.A;
         SizeMultiplier = Math.Clamp(saved.SizeMultiplier, 0.25, 2.0);
         AlwaysOnTop = saved.AlwaysOnTop;
+        UpdateServerUrl = string.IsNullOrWhiteSpace(saved.UpdateServerUrl) ? null : saved.UpdateServerUrl.Trim();
         if (saved.ScreenName is not null && Array.IndexOf(ScreenNames, saved.ScreenName) >= 0)
             ScreenName = saved.ScreenName;
 
@@ -184,7 +186,8 @@ public sealed class CompanionController
         SizeMultiplier = Math.Round(SizeMultiplier, 2),
         ManualVisual = ManualVisual,
         ScreenName = ScreenName,
-        AlwaysOnTop = AlwaysOnTop
+        AlwaysOnTop = AlwaysOnTop,
+        UpdateServerUrl = UpdateServerUrl
     };
 
     public bool ConsumeDirtyFlag(double dt)
