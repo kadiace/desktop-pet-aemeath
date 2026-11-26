@@ -31,16 +31,43 @@ public sealed class CompanionController
     public const double MaxFallSpeedDip = 2200.0;
     public const double PauseReturnSeconds = 5 * 60.0;
 
-    public static (double WidthDip, double HeightDip, double BottomPadDip, double FootHalfWidthDip, double TopPadDip) GetSpriteMetrics(string spriteName)
+    public static (
+        double WidthDip,
+        double HeightDip,
+        double BottomPadDip,
+        double FootHalfWidthDip,
+        double TopPadDip,
+        double LeftPadDip,
+        double RightPadDip,
+        double VisualBottomPadDip) GetSpriteMetrics(string spriteName)
     {
         if (string.Equals(spriteName, "screen8", StringComparison.OrdinalIgnoreCase))
-            return (300.0, 200.0, 15.0, 62.0, 30.0);
-        if (string.Equals(spriteName, "screen2", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(spriteName, "screen4", StringComparison.OrdinalIgnoreCase))
-            return (200.0, 200.0, 0.0, 42.0, 66.0);
+            return (300.0, 200.0, 15.0, 62.0, 30.0, 30.0, 30.0, 0.0);
+        if (string.Equals(spriteName, "screen2", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 68.0, 38.0, 34.0, 0.0);
+        if (string.Equals(spriteName, "screen4", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 72.0, 38.0, 34.0, 0.0);
+        if (string.Equals(spriteName, "screen5", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 4.0, 42.0, 90.0, 38.0, 38.0, 0.0);
+        if (string.Equals(spriteName, "screen7", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 4.0, 42.0, 64.0, 38.0, 34.0, 0.0);
         if (spriteName.StartsWith("screen", StringComparison.OrdinalIgnoreCase))
-            return (200.0, 200.0, 4.0, 42.0, 64.0);
-        return (200.0, 200.0, 0.0, 42.0, 16.0);
+            return (200.0, 200.0, 4.0, 42.0, 68.0, 38.0, 34.0, 0.0);
+        if (string.Equals(spriteName, "aemeath", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 25.0, 2.0, 2.0, 23.0);
+        if (string.Equals(spriteName, "move", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 1.0, 15.0, 15.0, 1.0);
+        if (string.Equals(spriteName, "drag", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 0.0, 0.0, 0.0, 0.0);
+        if (string.Equals(spriteName, "idle1", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 13.0, 0.0, 0.0, 0.0);
+        if (string.Equals(spriteName, "idle2", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 10.0, 1.0, 1.0, 10.0);
+        if (string.Equals(spriteName, "idle3", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 1.0, 1.0, 1.0, 1.0);
+        if (string.Equals(spriteName, "idle4", StringComparison.OrdinalIgnoreCase))
+            return (200.0, 200.0, 0.0, 42.0, 1.0, 2.0, 2.0, 0.0);
+        return (200.0, 200.0, 0.0, 42.0, 16.0, 0.0, 0.0, 0.0);
     }
 
     private readonly Random _rng;
@@ -91,7 +118,15 @@ public sealed class CompanionController
         _rng = rng ?? Random.Shared;
     }
 
-    public (double WidthDip, double HeightDip, double BottomPadDip, double FootHalfWidthDip, double TopPadDip) ActiveMetrics
+    public (
+        double WidthDip,
+        double HeightDip,
+        double BottomPadDip,
+        double FootHalfWidthDip,
+        double TopPadDip,
+        double LeftPadDip,
+        double RightPadDip,
+        double VisualBottomPadDip) ActiveMetrics
         => GetSpriteMetrics(ActiveSpriteName);
 
     public double HalfWidthPx(double dpiScale) => Math.Max(16.0, (ActiveMetrics.WidthDip * 0.5) * SizeMultiplier * dpiScale);
@@ -100,6 +135,28 @@ public sealed class CompanionController
     {
         var m = ActiveMetrics;
         return Math.Max(16.0, (m.HeightDip * 0.5 - m.BottomPadDip) * SizeMultiplier * dpiScale);
+    }
+    public double VisualLeftOffsetPx(double dpiScale)
+    {
+        var m = ActiveMetrics;
+        double pad = ShouldFlipHorizontal ? m.RightPadDip : m.LeftPadDip;
+        return Math.Max(8.0, (m.WidthDip * 0.5 - pad) * SizeMultiplier * dpiScale);
+    }
+    public double VisualRightOffsetPx(double dpiScale)
+    {
+        var m = ActiveMetrics;
+        double pad = ShouldFlipHorizontal ? m.LeftPadDip : m.RightPadDip;
+        return Math.Max(8.0, (m.WidthDip * 0.5 - pad) * SizeMultiplier * dpiScale);
+    }
+    public double VisualTopOffsetPx(double dpiScale)
+    {
+        var m = ActiveMetrics;
+        return Math.Max(8.0, (m.HeightDip * 0.5 - m.TopPadDip) * SizeMultiplier * dpiScale);
+    }
+    public double VisualBottomOffsetPx(double dpiScale)
+    {
+        var m = ActiveMetrics;
+        return Math.Max(8.0, (m.HeightDip * 0.5 - m.VisualBottomPadDip) * SizeMultiplier * dpiScale);
     }
     public double HalfSizePx(double dpiScale) => HalfHeightPx(dpiScale);
     public double SpriteSizePx(double dpiScale) => HalfHeightPx(dpiScale) * 2.0;
@@ -962,35 +1019,60 @@ public sealed class CompanionController
         return pool[0];
     }
 
-    private (double MinX, double MaxX, double MinY, double MaxY) GetMovementBounds(MonitorBounds mon, double dpiScale)
+    private (double MinX, double MaxX, double MinY, double MaxY) GetMovementBounds(MonitorBounds mon, double dpiScale, bool useFullMonitor = false)
     {
-        double halfW = HalfWidthPx(dpiScale);
-        double halfH = HalfHeightPx(dpiScale);
-        double footOffset = FootOffsetPx(dpiScale);
+        double leftOff = VisualLeftOffsetPx(dpiScale);
+        double rightOff = VisualRightOffsetPx(dpiScale);
+        double topOff = VisualTopOffsetPx(dpiScale);
+        double bottomOff = Mode == CompanionMode.B ? FootOffsetPx(dpiScale) : VisualBottomOffsetPx(dpiScale);
         double extraTop = ShouldShowBubble ? (BubbleHeightDip + BubbleGapDip + 16.0) * dpiScale : 0.0;
-        double minX = mon.WorkRect.Left + halfW;
-        double maxX = Math.Max(minX, mon.WorkRect.Right - halfW);
-        double minY = mon.WorkRect.Top + halfH + extraTop;
-        double maxY = Math.Max(minY, mon.WorkRect.Bottom - footOffset);
+
+        var rect = useFullMonitor ? mon.MonitorRect : mon.WorkRect;
+        double minX = rect.Left + leftOff;
+        double maxX = Math.Max(minX, rect.Right - rightOff);
+        double minY = rect.Top + topOff + extraTop;
+        double bottomEdge = Mode == CompanionMode.B ? mon.WorkRect.Bottom : rect.Bottom;
+        double maxY = Math.Max(minY, bottomEdge - bottomOff);
         return (minX, maxX, minY, maxY);
+    }
+
+    private static (int Left, int Right) GetHorizontalSpanAtY(IReadOnlyList<MonitorBounds> monitors, double y, MonitorBounds fallback)
+    {
+        double checkY = Math.Clamp(y, fallback.MonitorRect.Top, fallback.MonitorRect.Bottom);
+        int minLeft = fallback.MonitorRect.Left;
+        int maxRight = fallback.MonitorRect.Right;
+        foreach (var m in monitors)
+        {
+            if (checkY >= m.MonitorRect.Top && checkY <= m.MonitorRect.Bottom)
+            {
+                if (m.MonitorRect.Left < minLeft) minLeft = m.MonitorRect.Left;
+                if (m.MonitorRect.Right > maxRight) maxRight = m.MonitorRect.Right;
+            }
+        }
+        return (minLeft, maxRight);
     }
 
     private void ClampToMonitors(IReadOnlyList<MonitorBounds> monitors, double dpiScale)
     {
         var mon = Win32Interop.FindMonitorForPoint(monitors, X, Y);
-        var (_, _, minY, maxY) = GetMovementBounds(mon, dpiScale);
-        // Allow horizontal roaming across virtual monitors when dragging; clamp within the virtual bounds
-        var virt = Win32Interop.GetVirtualWorkBounds(monitors);
-        double halfW = HalfWidthPx(dpiScale);
-        X = Math.Clamp(X, virt.Left + halfW, Math.Max(virt.Left + halfW, virt.Right - halfW));
+        var (spanLeft, spanRight) = GetHorizontalSpanAtY(monitors, Y, mon);
+        double leftOff = VisualLeftOffsetPx(dpiScale);
+        double rightOff = VisualRightOffsetPx(dpiScale);
+        X = Math.Clamp(X, spanLeft + leftOff, Math.Max(spanLeft + leftOff, spanRight - rightOff));
+
+        // Re-resolve monitor after horizontal clamp (in case X crossed to an adjacent monitor)
+        mon = Win32Interop.FindMonitorForPoint(monitors, X, Y);
+        var (_, _, minY, maxY) = GetMovementBounds(mon, dpiScale, useFullMonitor: true);
         Y = Math.Clamp(Y, minY, maxY);
     }
 
     private void ClampHorizontalToMonitors(IReadOnlyList<MonitorBounds> monitors, double dpiScale)
     {
-        var virt = Win32Interop.GetVirtualWorkBounds(monitors);
-        double halfW = HalfWidthPx(dpiScale);
-        X = Math.Clamp(X, virt.Left + halfW, Math.Max(virt.Left + halfW, virt.Right - halfW));
+        var mon = Win32Interop.FindMonitorForPoint(monitors, X, Y);
+        var (spanLeft, spanRight) = GetHorizontalSpanAtY(monitors, Y, mon);
+        double leftOff = VisualLeftOffsetPx(dpiScale);
+        double rightOff = VisualRightOffsetPx(dpiScale);
+        X = Math.Clamp(X, spanLeft + leftOff, Math.Max(spanLeft + leftOff, spanRight - rightOff));
     }
 
     private double RandomRange(double min, double max) => min + _rng.NextDouble() * (max - min);

@@ -322,13 +322,13 @@ public static class Win32Interop
                 return m;
         }
 
-        // Closest monitor center fallback
+        // Closest monitor edge fallback (accurate even for asymmetric landscape + portrait monitor layouts)
         MonitorBounds best = monitors[0];
         double bestDist = double.MaxValue;
         foreach (var m in monitors)
         {
-            double cx = (m.WorkRect.Left + m.WorkRect.Right) * 0.5;
-            double cy = (m.WorkRect.Top + m.WorkRect.Bottom) * 0.5;
+            double cx = Math.Clamp(x, m.MonitorRect.Left, m.MonitorRect.Right);
+            double cy = Math.Clamp(y, m.MonitorRect.Top, m.MonitorRect.Bottom);
             double d = (x - cx) * (x - cx) + (y - cy) * (y - cy);
             if (d < bestDist)
             {

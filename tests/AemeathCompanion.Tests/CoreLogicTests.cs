@@ -184,6 +184,56 @@ void Assert(bool condition, string name)
     var exported = healed.ExportState();
     Assert(exported.Mode == "B" && exported.ScreenName == "screen8",
         "ExportState preserves Mode=B and ScreenName=screen8 across restarts");
+
+    // Screen-edge bounds test: visible sprite edges reach exact monitor edges despite transparent canvas margins,
+    // and staggered landscape+portrait multi-monitor setups clamp cleanly without teleporting.
+    {
+        var landscape = new MonitorBounds(
+            new NativeRect { Left = 0, Top = 0, Right = 2560, Bottom = 1440 },
+            new NativeRect { Left = 0, Top = 0, Right = 2560, Bottom = 1392 },
+            true);
+        var portrait = new MonitorBounds(
+            new NativeRect { Left = 2560, Top = -572, Right = 4000, Bottom = 1988 },
+            new NativeRect { Left = 2560, Top = -572, Right = 4000, Bottom = 1940 },
+            false);
+        var dualMonitors = new List<MonitorBounds> { landscape, portrait };
+
+        var edgeCtrl = new CompanionController(new Random(7));
+        edgeCtrl.InitializeFromState(new CompanionPersistedState { Mode = "B", ScreenName = "screen1", SizeMultiplier = 2.0 }, dualMonitors, 1.0);
+
+        // Drag screen1 (Pad L=38, R=34, T=68 -> at 2x visible offsets L=124, R=132, T=64) to top-left corner of primary monitor
+        edgeCtrl.BeginDrag(dualMonitors, 1.0);
+        edgeCtrl.UpdateDrag(-500, -500, dualMonitors, 1.0);
+        Assert(Math.Abs(edgeCtrl.X - edgeCtrl.VisualLeftOffsetPx(1.0)) < 0.5 && edgeCtrl.X < 130,
+            $"screen1 visible left edge reaches X=0 flush (center X={edgeCtrl.X:F1}, leftOff={edgeCtrl.VisualLeftOffsetPx(1.0):F1})");
+        Assert(Math.Abs(edgeCtrl.Y - edgeCtrl.VisualTopOffsetPx(1.0)) < 0.5 && edgeCtrl.Y < 70,
+            $"screen1 visible top edge reaches Y=0 flush (center Y={edgeCtrl.Y:F1}, topOff={edgeCtrl.VisualTopOffsetPx(1.0):F1})");
+
+        // Dragging straight up above landscape monitor stays on landscape (never teleports to portrait overhang)
+        edgeCtrl.UpdateDrag(500, -200, dualMonitors, 1.0);
+        Assert(Math.Abs(edgeCtrl.X - 500) < 0.5 && Math.Abs(edgeCtrl.Y - edgeCtrl.VisualTopOffsetPx(1.0)) < 0.5,
+            $"Dragging above primary top edge keeps X=500 and clamps Y flush to top (X={edgeCtrl.X:F1}, Y={edgeCtrl.Y:F1})");
+
+        // Drag across to far right edge of secondary portrait monitor
+        edgeCtrl.UpdateDrag(5000, 500, dualMonitors, 1.0);
+        Assert(Math.Abs((edgeCtrl.X + edgeCtrl.VisualRightOffsetPx(1.0)) - 4000) < 0.5,
+            $"screen1 visible right edge reaches X=4000 flush (X+rightOff={edgeCtrl.X + edgeCtrl.VisualRightOffsetPx(1.0):F1})");
+
+        // Drag in portrait upper overhang (Y=-300) toward left edge -> clamps cleanly at X=2560 without snapping down
+        edgeCtrl.UpdateDrag(2700, -300, dualMonitors, 1.0);
+        edgeCtrl.UpdateDrag(2500, -300, dualMonitors, 1.0);
+        Assert(Math.Abs((edgeCtrl.X - edgeCtrl.VisualLeftOffsetPx(1.0)) - 2560) < 0.5 && Math.Abs(edgeCtrl.Y - (-300)) < 0.5,
+            $"Portrait upper overhang clamps cleanly at X=2560 edge (X={edgeCtrl.X:F1}, Y={edgeCtrl.Y:F1})");
+        edgeCtrl.EndDrag(dualMonitors, 1.0);
+
+        // Roam mode drag reaches the very bottom edge of the monitor (MonitorRect.Bottom)
+        edgeCtrl.SetMode(CompanionMode.A, dualMonitors, 1.0);
+        edgeCtrl.BeginDrag(dualMonitors, 1.0);
+        edgeCtrl.UpdateDrag(500, 3000, dualMonitors, 1.0);
+        Assert(Math.Abs((edgeCtrl.Y + edgeCtrl.VisualBottomOffsetPx(1.0)) - 1440) < 0.5,
+            $"Roam drag reaches exact monitor bottom edge Y=1440 (Y+bottomOff={edgeCtrl.Y + edgeCtrl.VisualBottomOffsetPx(1.0):F1})");
+        edgeCtrl.EndDrag(dualMonitors, 1.0);
+    }
 }
 
 // ============================================================
@@ -439,7 +489,7 @@ void Assert(bool condition, string name)
     Assert(AppUpdateService.IsNewerVersion("1.0.0-beta.1", "1.0.0"), "SemVer treats stable release as newer than pre-release");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.2.0"), "SemVer returns false for identical versions");
     Assert(!AppUpdateService.IsNewerVersion("1.2.0", "v1.1.9"), "SemVer returns false for older candidate");
-    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.8", "Assembly version matches project Version (0.0.8)");
+    Assert(AppUpdateService.ReadAssemblyVersion() == "0.0.9", "Assembly version matches project Version (0.0.9)");
 
     // Unreachable update server surfaces clear disconnected/failure status
     using (var offlineUpdater = new AppUpdateService("http://127.0.0.1:1"))
